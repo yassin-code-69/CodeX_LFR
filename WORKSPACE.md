@@ -24,6 +24,7 @@ Generic STM32F1, part number BluePill F103C8). Host tests in `tests/` compile th
 | `main` (`2bb762d`) | V3.3 foundation baseline. Not modified. |
 | `dev/v3.4-phase-a` | V3.4 Phase A reliability/safety fixes (this work) |
 | `dev/v3.5-performance` | V3.5 performance candidate (FAST turn phases, telemetry), from V3.4 `867289e` |
+| `dev/v3.5.2-safety-audit` | review fixes on top of frozen V3.5.1 `cf4d560`; NOT a validated release, local only |
 
 Nothing is pushed or merged without the owner's approval.
 
@@ -34,5 +35,5 @@ arduino-cli compile -b STMicroelectronics:stm32:GenF1:pnum=BLUEPILL_F103C8 --war
 # fallback sensor path:   --build-property "compiler.cpp.extra_flags=-DLFR_FAST_SENSOR=0"
 ```
 
-Host tests (Git Bash / Linux / WSL with g++): `cd tests && sh run_tests.sh && sh run_v32_regressions.sh && sh run_v33_tests.sh && sh run_v34_tests.sh && sh run_v35_tests.sh`
+Host tests (Git Bash / Linux / WSL with g++): `cd tests && sh run_tests.sh && sh run_v32_regressions.sh && sh run_v33_tests.sh && sh run_v34_tests.sh && sh run_v35_tests.sh && sh run_v352_tests.sh`
 (run in a copy: `run_tests.sh` rewrites `tests/previews/`).

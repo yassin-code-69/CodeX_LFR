@@ -87,7 +87,7 @@ static void testScript() {
   Settings s=defaultSettings();s.navMode=3;
   s.routeCount=1;s.route[0]=uint8_t(RouteStep::Left);
   Controller c;c.start(0,0);
-  SensorFrame j=frame(0);j.junction=true;j.active=7;
+  SensorFrame j=frame(0);j.junction=true;j.active=7;j.leftEdge=true;  // V3.5.2: a real junction shows its arm
   c.tick(j,s,5,.005f);c.tick(j,s,10,.005f);
   c.tick(j,s,15,.005f);
   assert(c.state()==DriveState::JunctionAdvance);

@@ -48,6 +48,6 @@ LINE (BLACK/WHITE), NAV (STRAIGHT/LEFT/RIGHT/SCRIPT), ROUTE (20 steps S/L/R/U), 
 | `LFR_FAST_BRAKE_MS_PER_100PWM` | 25 | ms per 100 PWM | FAST pre-brake hold vs recent commanded PWM (not measured speed) |
 | `LFR_FAST_BRAKE_MAX_MS` | 60 | ms | pre-brake cap |
 | `LFR_FAST_CATCH_POS` | 2600 | pos units (1000 = one sensor pitch) | FAST early catch window |
-| `LFR_FAST_COUNTER_MS` | 15 | ms | FAST opposite pulse (half turn PWM) |
+| `LFR_FAST_COUNTER_MS` | 15 | ms | FAST CATCH stop window (zero command; wheels decelerate at brakeStep; no reverse PWM) |
 | `LFR_FAST_EXIT_RAMP_MS` | 150 | ms | FAST post-turn speed ramp curve -> base |
 | `CTRL_PERIOD_US` | 3000 | us | 333 Hz; do not change before measuring LOOP_MAX_US on the robot |

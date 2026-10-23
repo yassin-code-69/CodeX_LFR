@@ -17,10 +17,15 @@ Nothing below has been tested on the robot. Host tests prove logic on synthetic 
 10. GAP budget 300 ms covers 10 cm only at >= 0.33 m/s; real curve-PWM speed unknown.
 
 ## Control / performance
-11. FAST turn constants (brake 25 ms per 100 PWM, catch ±2600, counter 15 ms, ramp 150 ms) are untuned guesses for a 510-530 g chassis. Speed proxy is commanded PWM, not measured speed.
+11. FAST turn constants (brake 25 ms per 100 PWM, catch ±2600, catch stop 15 ms, ramp 150 ms) are untuned guesses for a 510-530 g chassis. Speed proxy is commanded PWM, not measured speed.
 12. 160 mm axle-to-sensor lookahead changes cornering geometry; junction advance (35 ms) was not re-derived from it.
 13. 333 Hz loop not measured on hardware; do not raise the rate before `LOOP_MAX_US` is known.
 14. 3S battery voltage drops during a run; timing-based behaviour drifts with voltage (no voltage sensing).
+
+## V3.5.2 safety-audit branch notes
+- CATCH no longer claims counter-torque: it commands a stop and the motor slew brakes the wheels toward zero. Real rotation stop distance on the 510-530 g chassis is unmeasured.
+- SCRIPT stops (FAULT) when the requested branch was not seen during the junction frames. A real branch that the sensors never showed (fast pass, poor contrast, skewed approach) therefore stops the robot instead of turning; confirm on the track.
+- A FAST turn whose line vanishes during CATCH stays pending through GAP; it commits only after the line is followed again.
 
 ## Storage
 15. Both settings slots share one 1 KB flash page: a power cut during SAVE can lose both; the robot then boots on defaults and refuses to arm until recalibrated. Identical saves no longer erase. A two-page journal (ST AN2594 style) is not implemented.

@@ -35,7 +35,7 @@ MARKER ── clears ≤ CROSSING_MAX after armed entry ─► intersection deci
 MARKER ── finish eligible and ≥ FINISH_CONFIRM ─► FINISHED
 MARKER ── clears later ─► FOLLOW (pad)        MARKER ── > 900 ms ─► FAULT
 PIVOT  ── centre line 2 frames after min time ─► FOLLOW (commit SCRIPT step)
-PIVOT  ── [FAST] line within ±CATCH_POS on turning side ─► CATCH (opposite pulse 15 ms) ─► FOLLOW + exit ramp
+PIVOT  ── [FAST] line within ±CATCH_POS on turning side ─► CATCH (stop command 15 ms; slew-limited braking, no reverse PWM) ─► FOLLOW + exit ramp
 PIVOT  ── > max time ─► FAULT
 ```
 SCRIPT steps are transactions: proposed at the junction, committed on pivot exit / catch (turns) or after 3 clean frames (straight); never while pending; a FAULT leaves the step uncommitted.

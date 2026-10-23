@@ -20,7 +20,7 @@ void Controller::start(uint32_t nowMs,int16_t initialPosition,bool startingOnFul
   pivotDirection_=-1;pivotMinimumMs_=38;pivotMaximumMs_=900;
   junctions_=routeUsed_=0;
   routePending_=false;commitFrames_=0;markerArmed_=false;
-  lastCleanMs_=0;fanSide_=0;fanSince_=0;fanArms_=0;cornerSide_=0;cornerSeenMs_=0;
+  lastCleanMs_=0;fanSide_=0;fanSince_=0;fanArms_=0;junctionArms_=0;cornerSide_=0;cornerSeenMs_=0;
   lastCmd_=Command{0,0};cmdAvg_=0.0f;exitRamp_=false;brakeSide_=0;brakeMs_=0;
   pending_=RouteStep::Straight;
   cornerBrakeFrames_=0;
@@ -268,7 +268,10 @@ Command Controller::decide(const SensorFrame &f,const Settings &s,
   }
   if(state_==DriveState::Catch) {
     if(elapsed>=LFR_FAST_COUNTER_MS) {
-      commitRoute();
+      // Line lost during CATCH: the turn is not complete. Keep the SCRIPT step
+      // pending; it commits after the line is followed again (Follow), and a
+      // GAP timeout leaves it unconsumed.
+      if(f.seen) commitRoute();
       enter(DriveState::Follow,nowMs);
       pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
       cooldownUntil_=nowMs+150;
@@ -276,9 +279,10 @@ Command Controller::decide(const SensorFrame &f,const Settings &s,
       if(!f.seen) {enter(DriveState::Gap,nowMs);return stop;}
       return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
     }
-    // Short opposite pulse at half turn PWM stops the rotation at the line.
-    const int16_t pwm=int16_t(s.turnPWM/2);
-    return pivotDirection_<0?Command{pwm,int16_t(-pwm)}:Command{int16_t(-pwm),pwm};
+    // Zero command: the motor slew (brakeStep) decelerates both wheels toward 0.
+    // V3.5.1 commanded half turn PWM in the opposite direction, but the slew
+    // never delivered reverse PWM within 15 ms at SAFE/BALANCED/FAST/SPRINT.
+    return stop;
   }
   if(state_==DriveState::Pivot) {
     if(elapsed>pivotMaximumMs_) {enter(DriveState::Fault,nowMs);return stop;}
@@ -290,8 +294,7 @@ Command Controller::decide(const SensorFrame &f,const Settings &s,
        int32_t(f.pos)*pivotDirection_>=0 &&
        f.pos>=-LFR_FAST_CATCH_POS && f.pos<=LFR_FAST_CATCH_POS) {
       enter(DriveState::Catch,nowMs);
-      const int16_t pwm=int16_t(s.turnPWM/2);
-      return pivotDirection_<0?Command{pwm,int16_t(-pwm)}:Command{int16_t(-pwm),pwm};
+      return stop;
     }
     if(oldCenterCleared_ && f.seen && f.center && f.active<=5 &&
        !f.junction && !f.fullMarker && f.pos>-1900 && f.pos<1900) {
@@ -470,8 +473,9 @@ Command Controller::decide(const SensorFrame &f,const Settings &s,
     if(!f.center || (nowMs-fanSince_)>LFR_FAN_CONFIRM_MS) fanSide_=0;
   }
 
-  // A SCRIPT "straight" commits after a few clean centred frames past the junction.
-  if(routePending_ && pending_==RouteStep::Straight) {
+  // A pending SCRIPT step commits after a few clean narrow-line frames past the
+  // junction: STRAIGHT always, a turn only when FAST CATCH ended without the line.
+  if(routePending_) {
     const bool clean=!f.junction && f.active<=5;  // narrow line anywhere: junction passed
     commitFrames_=clean?uint8_t(commitFrames_<8?commitFrames_+1:8):0;
     if(commitFrames_>=3) commitRoute();
@@ -481,14 +485,25 @@ Command Controller::decide(const SensorFrame &f,const Settings &s,
   if(f.junction) {
     clearSince_=0;
     if(junctionFrames_<8) ++junctionFrames_;
+    junctionArms_|=uint8_t((f.leftEdge?1:0)|(f.rightEdge?2:0)|(f.center?4:0));
   } else {
-    junctionFrames_=0;
+    junctionFrames_=0;junctionArms_=0;
     if(clearSince_==0) clearSince_=nowMs;
     if(junctionLatched_ && (nowMs-clearSince_)>=175 && nowMs>=cooldownUntil_)
       junctionLatched_=false;
   }
   if(f.junction && junctionFrames_>=3 && !junctionLatched_ &&
      nowMs>=cooldownUntil_ && !routePending_) {
+    // SCRIPT: only a branch seen during these junction frames (or the side
+    // fan before them) may be taken; otherwise stop instead of pivoting into
+    // nothing. Other NAV modes choose from the current frame as before.
+    if(s.navMode==uint8_t(NavMode::Script)) {
+      uint8_t arms=junctionArms_;
+      if(fanSide_!=0) arms|=fanArms_;
+      SensorFrame options=f;
+      options.leftEdge=(arms&1)!=0;options.rightEdge=(arms&2)!=0;options.center=(arms&4)!=0;
+      return takeJunction(options,f,s,nowMs,true);
+    }
     return takeJunction(f,f,s,nowMs,false);
   }
   return follow(f,s,dt);

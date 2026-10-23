@@ -1,3 +1,15 @@
+# LFR PRO V3.5.2 - safety audit branch (`dev/v3.5.2-safety-audit`, from frozen V3.5.1 `cf4d560`) - NOT a validated release
+
+Three findings from an independent review, each reproduced on `cf4d560` before fixing (`tests/test_v352_safety_audit.cpp`, `run_v352_tests.sh`):
+
+| # | Finding | On cf4d560 | Fix |
+|---|---|---|---|
+| 1 | Normal junction path (`takeJunction(...,false)`): SCRIPT RIGHT at a junction showing only LEFT + STRAIGHT | CONFIRMED: pivots right into a branch never seen | SCRIPT validates the requested arm against all arms seen during the junction frames (plus a preceding side fan); missing arm -> FAULT, zero command, step not consumed. Other NAV modes unchanged |
+| 2 | FAST CATCH committed the SCRIPT step before checking the line | CONFIRMED: line lost during CATCH -> step consumed, then GAP -> FAULT | commit only if the line is seen at CATCH end; otherwise the step stays pending through GAP and commits after the line is followed again (a GAP timeout leaves it unconsumed) |
+| 3 | "Opposite pulse" vs motor slew (SAFE turnPWM 83, brakeStep 28, 3 ms) | CONFIRMED that no counter-torque is delivered: real slew outputs go -83 -> 0 with no reverse PWM in 15 ms (same for BALANCED/FAST/SPRINT; TECHNICAL produced an 11-PWM reverse blip in the last tick) | CATCH now commands an explicit stop; outputs are identical for SAFE/BALANCED/FAST/SPRINT and the TECHNICAL blip is gone; docs no longer claim counter-torque |
+
+Intentional test updates: `test_v3` script junction frame now shows its left arm (a real junction always does); `test_v35_performance` expects the CATCH stop command. Host 69/69 PASS (also under UBSan); STM32 0 warnings: LOCKED 48,780 B, UNLOCKED 49,764 B, FAST_SENSOR=0 51,400 B, TELEMETRY 50,272 B. Hardware, pins, four buttons, PWM and flash format unchanged. Not physically tested.
+
 # LFR PRO V3.5 - Performance candidate (branch `dev/v3.5-performance`, from V3.4 `867289e`)
 
 Everything new is OFF / CLASSIC by default; hardware, pins, four buttons, PWM and EEPROM format unchanged. Not physically tested.

@@ -31,6 +31,8 @@ Environment: Windows 11, MinGW g++ (Git Bash), arduino-cli 1.5.1 bundled with Ar
 | `sh run_v35_tests.sh` (FAST/CLASSIC, 2 x 100,000-tick seeded stress, UI/telemetry) | - | PASS |
 | PASS lines total | 53 | 61 |
 
+V3.5.2 safety-audit branch (not a release): 69 PASS lines, 0 failures, also under UBSan; `run_v352_tests.sh` added (`test_logs/v352/`). STM32: LOCKED 48,780 B, UNLOCKED 49,764 B, FAST_SENSOR=0 51,400 B, TELEMETRY 50,272 B, 0 warnings.
+
 After the full audit (V3.4.1 / V3.5.1, see `AUDIT_REPORT.md`): 54 / 62 PASS lines, 0 failures; V3.5.1 also 62/62 under UBSan trap mode (`test_logs/v351/`).
 
 Audit repro tests (`V33_AUDIT_REPRO_TESTS.zip`) against V3.4: they encode V3.3 behaviour and now fail exactly at the fixed points (route consumed before turn, 900 ms sweep, init fault not latched).

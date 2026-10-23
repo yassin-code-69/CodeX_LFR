@@ -47,7 +47,7 @@ static void testFastCornerPhases() {
   for(int i=0;i<30;++i) tick(c,none(),s,t);           // rotating, nothing seen
   tick(c,line(-4300),s,t);assert(c.state()==DriveState::Pivot);   // still far out
   cmd=tick(c,line(-2400),s,t);                          // line sweeps in from the left
-  assert(c.state()==DriveState::Catch && cmd.left>0 && cmd.right<0);  // opposite pulse
+  assert(c.state()==DriveState::Catch && cmd.left==0 && cmd.right==0);  // V3.5.2: stop command
   while(c.state()==DriveState::Catch) tick(c,line(-1500),s,t);
   assert(c.state()==DriveState::Follow);
   int peak=0;
@@ -55,7 +55,7 @@ static void testFastCornerPhases() {
   assert(peak<s.basePWM);                               // exit ramp still limiting
   for(int i=0;i<80;++i) tick(c,line(),s,t);
   cmd=tick(c,line(),s,t);assert(cmd.left>=s.basePWM);    // ramp released
-  puts("PASS FAST: BRAKE (bounded) -> PIVOT -> early CATCH with opposite pulse -> ramped exit");
+  puts("PASS FAST: BRAKE (bounded) -> PIVOT -> early CATCH (stop command) -> ramped exit");
 }
 static void testFastGuards() {
   Settings s=fastProfile();Controller c;uint32_t t;

@@ -104,7 +104,8 @@ static_assert(LFR_FINISH_CONFIRM_MS>LFR_CROSSING_MAX_MS,"finish must outlast a c
 #define LFR_FAST_BRAKE_MS_PER_100PWM 25U
 #define LFR_FAST_BRAKE_MAX_MS 60U
 // Early catch: end the pivot when the new line reaches this |pos| from the
-// turning side, then a short opposite pulse to stop the rotation.
+// turning side, then a short STOP command (V3.5.2: zero, not reverse; the motor
+// slew decelerates the wheels toward 0 - host motor tests show no reverse PWM).
 #define LFR_FAST_CATCH_POS 2600
 #define LFR_FAST_COUNTER_MS 15U
 // After a FAST turn the speed limit ramps from curvePWM back to the plan.
