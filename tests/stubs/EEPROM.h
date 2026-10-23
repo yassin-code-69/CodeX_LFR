@@ -8,6 +8,7 @@ struct MockEEPROM {
   }
 };
 extern MockEEPROM EEPROM;
+extern int mockEepromFlushes;  // one flush = one emulated flash page erase/program
 void eeprom_buffer_fill();
 void eeprom_buffered_write_byte(size_t address,uint8_t b);
 void eeprom_buffer_flush();

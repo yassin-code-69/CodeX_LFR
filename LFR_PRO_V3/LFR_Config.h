@@ -43,8 +43,9 @@
 #define LFR_OLED_ROTATE_180 0
 // 0 = safe 100kHz I2C; 1 = faster 400kHz if the OLED/wiring support it.
 #define LFR_OLED_FAST_I2C 0
-// 1 = direct STM32 GPIO mux select + short ADC acquisition (hardware validation required).
-// 0 = safe Arduino digitalWrite/analogRead fallback.
+// 1 = direct STM32F1 GPIO MUX select + register-level ADC1 conversions (about 10 us
+//     per channel). Verify SENSOR LIVE values against 0 on the real board.
+// 0 = Arduino digitalWrite/analogRead fallback (slow; the original demo path).
 #ifndef LFR_FAST_SENSOR
 #define LFR_FAST_SENSOR 1
 #endif
@@ -110,8 +111,11 @@ static constexpr uint32_t MUX_BSRR[16] = {
   0x00800058U,  // ch14: S3=1 S2=1 S1=1 S0=0
   0x000000D8U,  // ch15: S3=1 S2=1 S1=1 S0=1
 };
-// Fast ADC: 13.5-cycle sampling. Compare stable adjacent-channel readings on hardware.
-static constexpr uint8_t  LFR_ADC_SAMPLE_CYCLES = 2; // register code for 13.5 cycles
+// Direct ADC1 sample time (SMPR code): 2=13.5, 3=28.5, 4=41.5, 5=55.5 cycles.
+// 41.5 cycles = 3.5 us at the 12 MHz ADC clock; it tolerates a higher sensor/MUX
+// source impedance than 13.5 cycles. Compare adjacent-channel readings on hardware.
+static constexpr uint8_t  LFR_ADC_CHANNEL = 2;       // PA2 = ADC12_IN2; change together with LFR_PIN_ADC
+static constexpr uint8_t  LFR_ADC_SAMPLE_CYCLES = 4; // SMPR register code for 41.5 cycles
 static constexpr uint8_t  LFR_MUX_SETTLE_US = 5;     // conservative starting point; validate against actual sensor source impedance
 
 enum class LineMode : uint8_t { Black=0, White=1 };
@@ -177,12 +181,12 @@ inline void setProfile(Settings &s, uint8_t profile) {
   if (s.speedProfile==0) {
     // SAFE: Practice / bench testing
     s.basePWM=76; s.maxPWM=112; s.curvePWM=52; s.turnPWM=83;
-    s.accelStep=10; s.brakeStep=28;
+    s.accelStep=10; s.brakeStep=28; s.junctionAdvanceMs=35;
     s.kpX10=120; s.kiX100=120; s.kdX100=18;
   } else if (s.speedProfile==1) {
     // BALANCED: General purpose competition
     s.basePWM=96; s.maxPWM=150; s.curvePWM=62; s.turnPWM=100;
-    s.accelStep=12; s.brakeStep=32;
+    s.accelStep=12; s.brakeStep=32; s.junctionAdvanceMs=35;
     s.kpX10=140; s.kiX100=90; s.kdX100=23;
   } else if (s.speedProfile==2) {
     // FAST: aggressive preset requiring real-world validation

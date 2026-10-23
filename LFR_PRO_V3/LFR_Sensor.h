@@ -11,6 +11,10 @@ public:
   // Precompute fixed-point 1/range multipliers after calibration changes.
   // Call this after every successful white/black calibration.
   void buildNormTable(const Calibration &cal);
+  // Duration of the last read() in microseconds (scan + classification).
+  uint16_t lastScanUs() const {return scanUs_;}
+  // Latched when a direct ADC1 conversion never completes; do not race.
+  bool adcFault() const {return adcFault_;}
 private:
   uint16_t filtered_[SENSOR_COUNT]={};
   bool hasFilter_=false;
@@ -20,8 +24,11 @@ private:
   // Eliminates expensive per-frame integer division in the hot loop.
   uint32_t normScale_[SENSOR_COUNT]={};
   bool hasNormTable_=false;
+  uint16_t scanUs_=0;
+  bool adcFault_=false;
   void selectChannel(uint8_t channel);
   uint16_t adcChannel(uint8_t channel);
+  uint16_t convert();
   void initFastADC();
 };
 }

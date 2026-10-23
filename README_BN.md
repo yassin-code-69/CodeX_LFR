@@ -1,4 +1,4 @@
-# LFR PRO V3.2 - সংশোধিত সম্পূর্ণ Firmware
+# LFR PRO V3.3 - সংশোধিত সম্পূর্ণ Firmware
 
 এই প্যাকেজটি **তোমার সর্বশেষ GitHub-এ push না-করা `LFR_PRO_V3.rar`**-এর ১৪টি source file থেকে তৈরি। আগের working file ও GitHub repository পরিবর্তন করা হয়নি। এটি **host-tested reliability patch**, hardware-এ সফল run-এর নিশ্চয়তা নয়।
 
@@ -8,7 +8,7 @@
 2. Extract-এর ভেতরের **`LFR_PRO_V3`** folder-এ যাও।
 3. **`LFR_PRO_V3.ino`** ফাইল Arduino IDE-তে Open করো। একই folder-এর সব `.cpp` ও `.h` ফাইল একসঙ্গে থাকতে হবে।
 4. তোমার আগের মতো STMicroelectronics STM32 Board package, **STM32F103C8T6 Blue Pill** বোর্ড এবং সঠিক Upload Method সিলেক্ট করো।
-5. **Verify/Compile** করো। Flash/RAM usage-এর Screenshot রাখো। এই পরিবেশে STM32 target compiler ছিল না, তাই PC test pass করলেও Flash Size এবং board compatibility এখনো নিশ্চিত নয়।
+5. **Verify/Compile** করো। V3.3 তোমার PC-র STM32 core 3.0.0 দিয়ে **BluePill F103C8**-এর জন্য compile করা হয়েছে: **Flash 46,712 byte (71%), RAM 4,024 byte, কোনো warning নেই।** তবে robot-এ এখনো flash বা চালানো হয়নি।
 
 ## ২. প্রথম Flash-এর আগে জরুরি সেটিং
 
@@ -53,13 +53,24 @@
 - OLED screen update-এর পর race time গণনা শুরু হয়।
 - OLED, EEPROM settings format, button pins ও মূল UI-এর structure অক্ষত রেখেছি।
 
+### V3.3-এ নতুন যা হয়েছে (race-এর চালানোর ধরন বদলায়নি)
+
+- Sensor এখন সরাসরি ADC1 register দিয়ে পড়া হয়, `analogRead()` আর ব্যবহার হয় না। আগের `analogRead()` প্রতিবার ADC নতুন করে চালু ও calibrate করত, তাই ধীর ছিল।
+- **SENSOR LIVE**-এর নিচে scan time দেখায় (প্রায় 150 US আশা করা যায়)। কোনো সমস্যা হলে `LFR_FAST_SENSOR 0` করে পুরোনো পদ্ধতিতে ফেরা যাবে।
+- ADC কাজ না করলে Race শুরু হবে না, আর চলমান Race থেমে যাবে ("SENSOR ADC FAULT")।
+- **SAVE SETTINGS** এখন প্রতিবার flash একবারই মোছে আর লেখে। আগে প্রতিটা বদলানো byte-এর জন্য একবার করে মুছত।
+- MIRROR REVERSED থাকলে AUTO CAL উল্টো sensor-এ মান রাখত, সেটা ঠিক করা হয়েছে।
+- SAFE আর BALANCED profile এখন নিজের junction time (35ms) নিজেই set করে।
+- Race result-এ 99 সেকেন্ডের বেশি সময়ও ঠিক দেখায়, আর `LOOP` লাইনে প্রতি control step-এ সর্বোচ্চ কত µs লাগল সেটা দেখায়।
+
 ## ৫. সবচেয়ে গুরুত্বপূর্ণ সীমাবদ্ধতা
 
 **কোনো জায়গা Full-Black Finish Box নাকি Full-Black Crossing, শুধু ১৪টি IR sensor-এর একই pattern থেকে শতভাগ আলাদা করা যায় না।** তাই আয়োজকের Track Rule নিশ্চিত না হওয়া পর্যন্ত **FINISH OFF** রাখবে। কিছু connected T Junction-ও corner-এর মতো দেখাতে পারে। এসব ক্ষেত্রে বাস্তব Sensor Replay/Track Test প্রয়োজন।
 
 এই প্যাকেজ এখনও নিচের পরীক্ষায় পাস করেছে বলে দাবি করছি না:
 
-- STM32 Blue Pill-এ বাস্তব compilation/linking/Flash-RAM size
+- STM32 Blue Pill-এ আসল flash করা ও চালানো (compile/link আর Flash-RAM size যাচাই হয়েছে)
+- Direct ADC-র মান robot-এ `LFR_FAST_SENSOR 0`-এর মানের সাথে মেলে কিনা
 - আসল মেঝে ও ৫১০–৫৩০ গ্রাম chassis-এ braking, grip ও top speed
 - Fast ADC channel crosstalk ও sensor scan timing
 - PB3 E-STOP-এর electrical test
@@ -73,6 +84,7 @@ ZIP-এর মধ্যে `TEST_REPORT.txt`, `CHANGELOG.md`, `TECHNICAL_README.
 ```sh
 sh run_tests.sh
 sh run_v32_regressions.sh
+sh run_v33_tests.sh
 ```
 
-**তোমার জন্য পরবর্তী কাজ:** Arduino IDE-তে `Verify` করে Flash/RAM result জানাও। এরপর motor wheel-off bench testing এবং ধাপে ধাপে physical track tuning-এ যাওয়া যাবে। মূল RAR অবশ্যই backup হিসেবে রাখবে।
+**তোমার জন্য পরবর্তী কাজ:** চাকা তুলে flash করো। SENSOR LIVE-এ scan time আর ১৪টা sensor-এর মান দেখো। তারপর motor wheel-off bench testing এবং ধাপে ধাপে physical track tuning-এ যাওয়া যাবে। মূল RAR অবশ্যই backup হিসেবে রাখবে।

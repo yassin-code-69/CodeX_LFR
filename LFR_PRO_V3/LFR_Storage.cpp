@@ -109,15 +109,15 @@ bool loadSettings(Settings &cfg,Calibration &cal,bool &calValid,bool &migrated) 
 }
 static bool writeAt(uint16_t offset,const Store3 &record) {
   if(size_t(offset)+sizeof(Store3)>size_t(EEPROM.length()))return false;
-#if defined(STM32_CORE_VERSION)
-  EEPROM.put(offset, record);
-#else
+  // STM32duino emulates the whole EEPROM in ONE 1 KB flash page on the F103C8.
+  // EEPROM.put() would erase and reprogram that page once per changed byte;
+  // the buffered API erases it once per save. Both slots share the page, so a
+  // power cut during a save can still lose both (the robot then boots on defaults).
   eeprom_buffer_fill();
   const uint8_t *p=reinterpret_cast<const uint8_t*>(&record);
   for(size_t i=0;i<sizeof(Store3);++i)
-    eeprom_buffered_write_byte(offset+i,p[i]);
+    eeprom_buffered_write_byte(uint32_t(offset+i),p[i]);
   eeprom_buffer_flush();
-#endif
   Store3 check={};EEPROM.get(offset,check);
   return good3(check) && check.sequence==record.sequence;
 }

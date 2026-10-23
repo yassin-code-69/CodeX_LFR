@@ -91,6 +91,9 @@ static void soundChime(Chime c) {
 static uint32_t raceStartMs = 0;
 static uint32_t raceElapsedMs = 0;
 static int16_t raceTopSpeed = 0;
+// Measured on the robot: worst control-step work time and worst step interval.
+static uint32_t raceMaxLoopUs = 0;
+static uint32_t raceMaxIntervalUs = 0;
 static uint32_t raceLaunchUntilMs = 0;
 static uint32_t countdownStartMs = 0;
 static uint8_t countdownStep = 0;
@@ -189,6 +192,13 @@ static uint8_t uiLength(const char *s) {
   while(*s++ && n<30)++n;
   return n;
 }
+// Small unsigned integer formatter; avoids printf in flash. Returns length.
+static uint8_t uiUInt(char *out,uint16_t n) {
+  char rev[6];uint8_t used=0;
+  do{rev[used++]=char('0'+n%10U);n/=10U;}while(n && used<sizeof(rev));
+  uint8_t w=0;while(used)out[w++]=rev[--used];
+  out[w]=0;return w;
+}
 static void uiText(uint8_t x,uint8_t y,const char *value,uint8_t limit,bool inverted=false) {
   if(!value || x>=128 || y>=64 || !limit)return;
   const uint8_t space=uint8_t((128U-x)/6U);
@@ -280,7 +290,13 @@ static void drawSensor(const SensorFrame &f) {
   oled.rule(42);
   oled.text(2,45,"POS");oled.number(25,45,f.seen?f.pos:0);
   oled.text(79,45,"N");oled.number(91,45,f.active);
-  footer("BACK EXIT",haveCalibration?"NORM":"RAW");
+  // Scan time confirms the sensor path on the bench (direct ADC1: ~150 US).
+  char right[12];
+  uint8_t k=uiUInt(right,sensor.lastScanUs());
+  for(const char *mode=haveCalibration?"US NORM":"US RAW";*mode && k<sizeof(right)-1;)
+    right[k++]=*mode++;
+  right[k]=0;
+  footer("BACK EXIT",right);
   oled.show();
 }
 static void serialSensor(const SensorFrame &f) {
@@ -327,6 +343,9 @@ static void performAutoSweep() {
   sweepSettings.maxPWM=70;
   sweepSettings.accelStep=10;
   sweepSettings.brakeStep=20;
+  // Calibration is stored per PHYSICAL sensor: read unmirrored so f.raw[i] matches it.
+  Settings physical=settings;
+  physical.mirror=0;
 
   const uint32_t startMs=millis();
   while(millis()-startMs<900) {
@@ -340,7 +359,7 @@ static void performAutoSweep() {
       motors.drive(Command{int16_t(-sweepPWM),sweepPWM},sweepSettings,true);
     }
     SensorFrame f={};
-    sensor.read(f,calibration,false,settings);
+    sensor.read(f,calibration,false,physical);
     for(uint8_t i=0;i<SENSOR_COUNT;++i) {
       const uint16_t raw=f.raw[i];
       if(raw<minVals[i]) minVals[i]=raw;
@@ -349,6 +368,7 @@ static void performAutoSweep() {
     delay(2);
   }
   motors.stop();
+  sensor.resetTracking();
   for(uint8_t i=0;i<SENSOR_COUNT;++i) {
     pendingCalibration.white[i]=minVals[i];
     pendingCalibration.black[i]=maxVals[i];
@@ -357,7 +377,6 @@ static void performAutoSweep() {
     calibration=pendingCalibration;
     haveCalibration=true;
     changed=true;
-    sensor.resetTracking();
     sensor.buildNormTable(calibration);
     soundChime(Chime::Success);
     notice("AUTO CAL SUCCESS","14/14 SENSORS OK");
@@ -477,13 +496,7 @@ static int tuneValue() {
     default:return settings.junctionAdvanceMs;
   }
 }
-// Small number formatter (integer/one/two decimals); avoids printf in flash.
-static uint8_t uiUInt(char *out,uint16_t n) {
-  char rev[6];uint8_t used=0;
-  do{rev[used++]=char('0'+n%10U);n/=10U;}while(n && used<sizeof(rev));
-  uint8_t w=0;while(used)out[w++]=rev[--used];
-  out[w]=0;return w;
-}
+// Tuning value with one/two decimals; avoids printf in flash.
 static void uiTuneValue(char out[16]) {
   const uint16_t value=uint16_t(tuneValue());
   const uint8_t decimals=tuneIndex==4?1:((tuneIndex==5 || tuneIndex==6)?2:0);
@@ -569,32 +582,44 @@ static void drawCountdown(uint8_t count) {
   uiCentered(46,"STAND CLEAR");
   footer("BACK CANCEL","COUNTDOWN");oled.show();
 }
+// Race time as "S.CCs": whole seconds keep every digit (no wrap after 99 s,
+// capped at 999), hundredths are always two digits. out needs 8 bytes.
+static void uiRaceTime(char *out,uint32_t ms) {
+  const uint32_t sec=ms/1000U;
+  const uint16_t ms10=uint16_t((ms%1000U)/10U);
+  uint8_t n=uiUInt(out,uint16_t(sec>999U?999U:sec));
+  out[n++]='.';
+  out[n++]=char('0'+ms10/10U);
+  out[n++]=char('0'+ms10%10U);
+  out[n++]='s';
+  out[n]=0;
+}
 static void finishRace(const char *reason) {
   motors.stop();controller.stop();page=Page::Result;
   raceElapsedMs=millis()-raceStartMs;
   soundChime(Chime::Finish);
   topBar("RACE RESULT",reason);
 
-  const uint16_t sec=uint16_t(raceElapsedMs/1000U);
-  const uint16_t ms10=uint16_t((raceElapsedMs%1000U)/10U);
   char timeBuf[12];
-  timeBuf[0]=char('0'+(sec/10U)%10U);
-  timeBuf[1]=char('0'+sec%10U);
-  timeBuf[2]='.';
-  timeBuf[3]=char('0'+(ms10/10U)%10U);
-  timeBuf[4]=char('0'+ms10%10U);
-  timeBuf[5]='s';
-  timeBuf[6]=0;
+  uiRaceTime(timeBuf,raceElapsedMs);
+  char loopBuf[10];
+  uint8_t n=uiUInt(loopBuf,uint16_t(raceMaxLoopUs>65535U?65535U:raceMaxLoopUs));
+  loopBuf[n++]='U';loopBuf[n++]='S';loopBuf[n]=0;
 
   oled.text(2,16,"TIME");
   oled.textBig(36,15,timeBuf,true);
   oled.text(2,34,"TOP PWM");
   oled.number(55,34,raceTopSpeed);
-  oled.text(2,45,"JUNCTIONS");
-  oled.number(65,45,controller.junctionCount());
+  oled.text(2,45,"JUNC");
+  oled.number(31,45,controller.junctionCount());
+  oled.text(64,45,"LOOP");
+  uiText(91,45,loopBuf,6);
   footer("BACK MENU","ENT OK");oled.show();
   Serial1.print("RACE TIME:");Serial1.print(timeBuf);
   Serial1.print(" TOP_PWM:");Serial1.print(raceTopSpeed);
+  Serial1.print(" LOOP_MAX_US:");Serial1.print(raceMaxLoopUs);
+  Serial1.print(" DT_MAX_US:");Serial1.print(raceMaxIntervalUs);
+  Serial1.print(" SCAN_US:");Serial1.print(sensor.lastScanUs());
   Serial1.print(" STOP:");Serial1.println(reason);
 }
 static void raceStart() {
@@ -608,11 +633,14 @@ static void raceStart() {
     notice("EMPTY ROUTE","ADD ROUTE STEPS");return;
   }
   SensorFrame f={};sensor.resetTracking();sensor.read(f,calibration,true,settings);
+  if(sensor.adcFault()) {notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;}
   if(!f.seen || (!f.fullMarker && (f.pos<-4200 || f.pos>4200))) {
     notice("START LINE INVALID","CENTER ON LINE");return;
   }
   page=Page::Race;
   raceTopSpeed=0;
+  raceMaxLoopUs=0;
+  raceMaxIntervalUs=0;
   topBar("RACE ACTIVE",profileName());
   uiCentered(17,"FULL PID RUNNING");
   uiCentered(31,navName());
@@ -639,6 +667,7 @@ static void armLaunch() {
     notice("EMPTY ROUTE","ADD ROUTE STEPS");return;
   }
   SensorFrame f={};sensor.resetTracking();sensor.read(f,calibration,true,settings);
+  if(sensor.adcFault()) {notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;}
   if(!f.seen || (!f.fullMarker && (f.pos<-4200 || f.pos>4200))) {
     notice("START LINE INVALID","CENTER ON LINE");return;
   }
@@ -781,6 +810,7 @@ void setup() {
 #else
   Serial1.println("WARNING: RACE ENABLED");
 #endif
+  Serial1.println(LFR_FAST_SENSOR?"SENSOR: DIRECT MUX + ADC1":"SENSOR: ANALOGREAD FALLBACK");
   drawMenu();
 }
 void loop() {
@@ -844,7 +874,9 @@ void loop() {
     if(interval>=CTRL_PERIOD_US) {
       if(interval>CTRL_WATCHDOG_US) {finishRace("LOOP WATCHDOG");return;}
       lastControlUs=tUs;
+      if(interval>raceMaxIntervalUs) raceMaxIntervalUs=interval;
       SensorFrame frame={};sensor.read(frame,calibration,true,settings);
+      if(sensor.adcFault()) {finishRace("SENSOR ADC FAULT");return;}
       if(backIsDown()) {finishRace("BACK E-STOP");return;}
       Command command=controller.tick(frame,settings,millis(),float(interval)*0.000001f);
       if(!controller.active()) {
@@ -860,6 +892,8 @@ void loop() {
         command.right=clamp16(command.right,-launchCap,launchCap);
       }
       motors.drive(command,settings,true,float(interval)*0.000001f);
+      const uint32_t workUs=micros()-tUs;
+      if(workUs>raceMaxLoopUs) raceMaxLoopUs=workUs;
 #if LFR_RACE_TELEMETRY
       if(millis()-lastTelemMs>=50) {
         lastTelemMs=millis();

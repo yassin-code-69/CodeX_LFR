@@ -1,6 +1,16 @@
 #include "LFR_Sensor.h"
 namespace lfr {
 
+// STM32duino's analogRead() initialises, calibrates and de-initialises ADC1 on
+// every call: slow, and it overwrites any sample time written beforehand. With
+// LFR_FAST_SENSOR on an STM32F1, ADC1 is configured once in begin() and each
+// channel read only triggers one conversion.
+#if LFR_FAST_SENSOR && defined(STM32F1xx) && defined(ADC1)
+#define LFR_DIRECT_ADC 1
+#else
+#define LFR_DIRECT_ADC 0
+#endif
+
 // ── Ultra-Fast MUX Channel Select ──────────────────────────────────────────
 // On real STM32: single BSRR write atomically flips all 4 MUX pins in 1 cycle.
 // On test/non-STM32: falls back to safe 4x digitalWrite.
@@ -15,16 +25,44 @@ void Sensor::selectChannel(uint8_t channel) {
 #endif
 }
 
-// ── Fast ADC Initialization ────────────────────────────────────────────────
-// Configures STM32 ADC1 for 13.5-cycle sample time on PA2 (channel 2).
-// ADC sample time and MUX settle are starting points, not accuracy guarantees.
-// Total impedance also depends on the reflectance sensor output stage/wiring.
+// ── Direct ADC1 Initialization (STM32F1) ───────────────────────────────────
+// Single regular conversion of LFR_ADC_CHANNEL, software trigger, 12 MHz ADC
+// clock (72 MHz PCLK2 / 6). Sample time and MUX settle are starting points,
+// not accuracy guarantees: compare SENSOR LIVE against LFR_FAST_SENSOR 0.
 void Sensor::initFastADC() {
-#if LFR_FAST_SENSOR && defined(ADC1)
-  // PA2 = ADC channel 2 → SMPR2 bits [8:6] (3 bits per channel, channel*3)
-  const uint32_t shift = 2U * 3U;       // channel 2 → bit offset 6
-  const uint32_t mask  = 0x7U << shift;  // clear 3 bits
-  ADC1->SMPR2 = (ADC1->SMPR2 & ~mask) | (uint32_t(LFR_ADC_SAMPLE_CYCLES) << shift);
+#if LFR_DIRECT_ADC
+  RCC->APB2ENR|=RCC_APB2ENR_ADC1EN;
+  (void)RCC->APB2ENR;  // read back: clock must run before ADC register writes
+  // The ADC clock must not exceed 14 MHz.
+  RCC->CFGR=(RCC->CFGR&~RCC_CFGR_ADCPRE)|RCC_CFGR_ADCPRE_DIV6;
+  ADC1->CR1=0;                                  // independent mode, no scan
+  ADC1->CR2=ADC_CR2_EXTSEL|ADC_CR2_EXTTRIG;     // EXTSEL=111: SWSTART trigger
+  // SMPR2 holds channels 0..9, three bits each.
+  const uint32_t shift=uint32_t(LFR_ADC_CHANNEL)*3U;
+  ADC1->SMPR2=(ADC1->SMPR2&~(0x7U<<shift))|(uint32_t(LFR_ADC_SAMPLE_CYCLES)<<shift);
+  ADC1->SQR1=0;                                 // one conversion in the sequence
+  ADC1->SQR3=LFR_ADC_CHANNEL;
+  ADC1->CR2|=ADC_CR2_ADON;                      // power up (tSTAB = 1 us)
+  delayMicroseconds(3);
+  ADC1->CR2|=ADC_CR2_RSTCAL;
+  for(uint32_t guard=100000;(ADC1->CR2&ADC_CR2_RSTCAL) && guard;--guard) {}
+  ADC1->CR2|=ADC_CR2_CAL;
+  for(uint32_t guard=100000;(ADC1->CR2&ADC_CR2_CAL) && guard;--guard) {}
+#endif
+}
+
+// One 12-bit conversion of the currently selected MUX channel.
+uint16_t Sensor::convert() {
+#if LFR_DIRECT_ADC
+  ADC1->CR2|=ADC_CR2_SWSTART;
+  // A conversion takes ~5 us; the guard only catches a dead or unclocked ADC.
+  for(uint16_t guard=2000;!(ADC1->SR&ADC_SR_EOC);) {
+    if(!--guard) {adcFault_=true;return 0;}
+  }
+  return uint16_t(ADC1->DR&0x0FFFU);  // reading DR clears EOC
+#else
+  const int value=analogRead(LFR_PIN_ADC);
+  return uint16_t(value<0?0:(value>ADC_MAX?ADC_MAX:value));
 #endif
 }
 
@@ -37,10 +75,9 @@ uint16_t Sensor::adcChannel(uint8_t channel) {
   delayMicroseconds(6);  // conservative fallback
 #endif
 #if LFR_SENSOR_DUMMY_READ
-  (void)analogRead(LFR_PIN_ADC); // discard sample immediately after MUX switch
+  (void)convert(); // discard sample immediately after MUX switch
 #endif
-  const int value=analogRead(LFR_PIN_ADC);
-  return uint16_t(value<0?0:(value>ADC_MAX?ADC_MAX:value));
+  return convert();
 }
 
 // ── Precompute Fixed-Point Normalization Scales ────────────────────────────
@@ -82,6 +119,7 @@ void Sensor::capture(uint16_t destination[SENSOR_COUNT]) {
   resetTracking();
 }
 void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Settings &s) {
+  const uint32_t startUs=micros();
   uint32_t total=0;
   f.active=0;f.groups=0;
   f.center=false;f.leftEdge=false;f.rightEdge=false;
@@ -181,5 +219,7 @@ void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Setting
   if(f.seen && !f.junction && !f.fullMarker) {
     lastPos_=best;hasPosition_=true;
   }
+  const uint32_t took=micros()-startUs;
+  scanUs_=uint16_t(took>65535U?65535U:took);
 }
 }

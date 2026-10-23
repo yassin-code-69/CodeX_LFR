@@ -33,6 +33,8 @@ extern uint64_t mockMicro;
 extern int mockDigital[64];
 extern int mockPwm[64];
 extern int mockMuxADC[16];
+extern int mockAnalogReads;          // analogRead() call count
+extern int (*mockAdcHook)(int mux);  // optional time-varying ADC source
 void pinMode(uint32_t p,int mode);
 void digitalWrite(uint32_t p,int level);
 int digitalRead(uint32_t p);

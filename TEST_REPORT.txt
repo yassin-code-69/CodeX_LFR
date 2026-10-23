@@ -27,8 +27,30 @@ PASS filtered PID transient: 24ms post-center output = -0.747
 ALL V3.2 EXTENDED REGRESSION TESTS PASSED
 PASS 2200 randomized controller traces; motor PWM bounds, mutual-exclusion and state invariants
 
+V3.3 (2026-10-23, Windows, MinGW g++ via Git Bash; all three scripts re-run, all of the above still PASS):
+PASS MUX BSRR table: all 16 selections drive exactly PA7/PA6/PA4/PA3
+PASS direct ADC1 init: clock, /6 prescaler, SWSTART trigger, sample time, channel, calibration
+PASS direct MUX+ADC1 scan: 14 channels in order, mirror, no analogRead (14 conversions/frame)
+PASS dead ADC1 conversion latches adcFault and reads zero
+ALL DIRECT SENSOR PATH TESTS PASSED   (also passed with LFR_SENSOR_DUMMY_READ=1: 28 conversions/frame)
+PASS every speed profile sets its own junction time
+PASS race time keeps whole seconds past 99 s
+PASS AUTO CAL with MIRROR REVERSED stores each value at its physical sensor
+PASS each SAVE SETTINGS is exactly one flash page write
+PASS race loop records worst interval 3070us and work 70us; BACK stops
+ALL V3.3 FOUNDATION TESTS PASSED
+The AUTO CAL mirror test was confirmed to FAIL when the old behaviour is re-injected.
+
+Real STM32 target build (arduino-cli 1.5.1, STMicroelectronics:stm32 3.0.0, GenF1 pnum=BLUEPILL_F103C8, --warnings all, 0 warnings):
+- V3.2 as received:                 Flash 48,952 B (74%), RAM 4,012 B
+- V3.3 default (FAST_SENSOR=1):      Flash 46,712 B (71%), RAM 4,024 B
+- V3.3 LFR_FAST_SENSOR=0:            Flash 49,380 B (75%), RAM 4,028 B
+- V3.3 DUMMY_READ=1 + RACE_START=1:  Flash 47,676 B (72%), RAM 4,040 B
+- Symbol check: the V3.3 default binary contains no analogRead/adc_read_value/HAL_ADC_Init and no per-byte eeprom_write_byte.
+Not flashed, not run on the robot.
+
 Additional checks performed outside these scripts:
 - Direct MUX GPIO BSRR lookup table: 16/16 valid selection/reset patterns.
 - Optional feature compile/execution: -DLFR_MOTOR_DEADBAND=20 -DLFR_PID_USE_ALPHA_BETA=1 -DLFR_SENSOR_DUMMY_READ=1 (host simulation passed; experimental observer exhibited larger post-step correction).
 - AddressSanitizer/UndefinedBehaviorSanitizer: edge tests and 2200 random traces passed without warnings in exercised code paths.
-- STM32 target compile/link, Flash/RAM, physical E-stop, real ADC timing and motor dynamics: NOT TESTED (target toolchain/hardware unavailable).
+- STM32 target compile/link and Flash/RAM: tested for V3.3 (see above). Physical E-stop, real ADC timing and motor dynamics: NOT TESTED (hardware unavailable).
