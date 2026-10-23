@@ -88,3 +88,11 @@ sh run_v33_tests.sh
 ```
 
 **তোমার জন্য পরবর্তী কাজ:** চাকা তুলে flash করো। SENSOR LIVE-এ scan time আর ১৪টা sensor-এর মান দেখো। তারপর motor wheel-off bench testing এবং ধাপে ধাপে physical track tuning-এ যাওয়া যাবে। মূল RAR অবশ্যই backup হিসেবে রাখবে।
+
+## V3.4 / V3.5 (নতুন)
+
+- **V3.4 (`dev/v3.4-phase-a`)**: T ও + junction, পাশের branch, 90° corner, finish, WHITE mode-এ কালো start pad, SCRIPT route-এর transaction, ADC fault হলে motor বন্ধ — এসব ঠিক করা হয়েছে। বিস্তারিত `CHANGELOG.md`-এ।
+- **V3.5 (`dev/v3.5-performance`)**: menu-র শেষে **TURN MODE** (CLASSIC/FAST)। এটা save হয় না, প্রতিবার চালু করলে CLASSIC থাকে। FAST-এ corner-এর আগে brake, তারপর pivot, আর line আসার আগেই ঘোরা থামানো (early catch)।
+- `LFR_RACE_TELEMETRY 1` দিলে Serial1-এ CSV log আসে, buffer ভরা থাকলে line বাদ যায়, race থামে না।
+- সব host test আর STM32 compile pass করেছে, কিন্তু **robot-এ এখনো চালানো হয়নি**। Track-এর পরীক্ষার ধাপ: `docs/TOMORROW_UNIVERSITY_TEST_PLAN.md`।
+- চারটা button, সব pin, EEPROM format আগের মতোই আছে।

@@ -38,7 +38,9 @@ static uint32_t lastTelemMs=0;
 static uint8_t motorStage=255;
 static bool scanBlack=false;
 // Mode editing is transactional: UP/DOWN previews, ENTER applies, BACK cancels.
-enum class ModeKind : uint8_t {Speed,Line,Navigation,Gap,Finish,Mirror};
+enum class ModeKind : uint8_t {Speed,Line,Navigation,Gap,Finish,Mirror,Turn};
+// V3.5 turn mode is RAM only (not saved): CLASSIC after every boot.
+static TurnMode turnMode=TurnMode::Classic;
 static ModeKind modeKind=ModeKind::Speed;
 static uint8_t modeDraft=0;
 
@@ -101,7 +103,7 @@ static const char* const names[]={
   "RACE / ARM", "SENSOR LIVE", "WHITE CAL", "BLACK CAL",
   "SPEED", "PID TUNING", "LINE", "NAV",
   "ROUTE EDIT", "GAP", "FINISH", "MIRROR",
-  "MOTOR CHECK", "SAVE SETTINGS", "RESET DEFAULTS"
+  "MOTOR CHECK", "SAVE SETTINGS", "RESET DEFAULTS", "TURN MODE"
 };
 static constexpr uint8_t MENU_ITEMS=sizeof(names)/sizeof(names[0]);
 static const char *noticeOne="",*noticeTwo="";
@@ -126,7 +128,8 @@ static const char* modeTitle(ModeKind k) {
     case ModeKind::Navigation:return "NAVIGATION";
     case ModeKind::Gap:return "GAP POLICY";
     case ModeKind::Finish:return "FINISH MARKER";
-    default:return "SENSOR MIRROR";
+    case ModeKind::Mirror:return "SENSOR MIRROR";
+    default:return "TURN MODE";
   }
 }
 static uint8_t modeCount(ModeKind k) {
@@ -141,7 +144,8 @@ static uint8_t modeActual(ModeKind k) {
     case ModeKind::Navigation:return settings.navMode;
     case ModeKind::Gap:return settings.gapMode;
     case ModeKind::Finish:return settings.finishOn;
-    default:return settings.mirror;
+    case ModeKind::Mirror:return settings.mirror;
+    default:return uint8_t(turnMode);
   }
 }
 static const char* modeLabel(ModeKind k,uint8_t v) {
@@ -151,7 +155,8 @@ static const char* modeLabel(ModeKind k,uint8_t v) {
     case ModeKind::Navigation:return v==0?"STRAIGHT":v==1?"LEFT":v==2?"RIGHT":"SCRIPT";
     case ModeKind::Gap:return v==0?"RECOVER":"STOP";
     case ModeKind::Finish:return v==0?"OFF":"ON";
-    default:return v==0?"NORMAL":"REVERSED";
+    case ModeKind::Mirror:return v==0?"NORMAL":"REVERSED";
+    default:return v==0?"CLASSIC":"FAST";
   }
 }
 static const char* menuValue(uint8_t item) {
@@ -162,6 +167,7 @@ static const char* menuValue(uint8_t item) {
     case 9:return modeLabel(ModeKind::Gap,settings.gapMode);
     case 10:return modeLabel(ModeKind::Finish,settings.finishOn);
     case 11:return modeLabel(ModeKind::Mirror,settings.mirror);
+    case 15:return modeLabel(ModeKind::Turn,uint8_t(turnMode));
     default:return nullptr;
   }
 }
@@ -472,6 +478,10 @@ static void changeModeDraft(int8_t delta) {
   drawModeSelect();
 }
 static void applyModeDraft() {
+  if(modeKind==ModeKind::Turn) {  // RAM only: never marks settings as changed
+    turnMode=modeDraft?TurnMode::Fast:TurnMode::Classic;
+    drawMenu();return;
+  }
   if(modeDraft!=modeActual(modeKind)) {
     switch(modeKind) {
       case ModeKind::Speed:
@@ -484,6 +494,7 @@ static void applyModeDraft() {
       case ModeKind::Finish:settings.finishOn=modeDraft;break;
       case ModeKind::Mirror:
         settings.mirror=modeDraft;sensor.resetTracking();break;
+      case ModeKind::Turn:break;
     }
     changed=true;
   }
@@ -570,7 +581,7 @@ static void modifyTune(int direction) {
 }
 static void drawArm() {
   page=Page::Arm;
-  topBar("RACE ARM",haveCalibration?"READY":"NO CAL");
+  topBar("RACE ARM",!haveCalibration?"NO CAL":(turnMode==TurnMode::Fast?"FAST":"READY"));
   oled.text(2,16,"CAL");oled.text(33,16,haveCalibration?"YES":"NO");
   oled.text(72,16,"LINE");oled.text(102,16,settings.lineMode==0?"BLK":"WHT");
   oled.text(2,28,"NAV");uiText(34,28,navName(),15);
@@ -642,6 +653,36 @@ static void finishRace(const char *reason) {
   Serial1.print(" SCAN_US:");Serial1.print(sensor.lastScanUs());
   Serial1.print(" STOP:");Serial1.println(reason);
 }
+#if LFR_RACE_TELEMETRY
+static uint8_t appendInt(char *b,uint8_t n,int32_t v) {
+  if(v<0) {b[n++]='-';v=-v;}
+  char rev[11];uint8_t k=0;
+  do{rev[k++]=char('0'+v%10);v/=10;}while(v && k<sizeof(rev));
+  while(k) b[n++]=rev[--k];
+  b[n++]=',';return n;
+}
+// One CSV row (~60 chars). Dropped, never waited for, if the UART buffer is full.
+static void telemetryLine(const SensorFrame &f,const Command &c) {
+  char b[96];uint8_t n=0;
+  n=appendInt(b,n,int32_t(millis()-raceStartMs));
+  n=appendInt(b,n,int32_t(controller.state()));
+  n=appendInt(b,n,settings.speedProfile);
+  n=appendInt(b,n,int32_t(turnMode));
+  n=appendInt(b,n,f.active);
+  n=appendInt(b,n,f.pos);
+  n=appendInt(b,n,f.confidence);
+  n=appendInt(b,n,(f.seen?1:0)|(f.center?2:0)|(f.leftEdge?4:0)|(f.rightEdge?8:0)|
+                  (f.junction?16:0)|(f.fullMarker?32:0)|(f.fullBlack?64:0));
+  n=appendInt(b,n,controller.junctionCount());
+  n=appendInt(b,n,controller.routeUsed());
+  n=appendInt(b,n,c.left);
+  n=appendInt(b,n,c.right);
+  n=appendInt(b,n,sensor.lastScanUs());
+  n=appendInt(b,n,int32_t(raceMaxLoopUs));
+  b[n-1]='\n';
+  if(Serial1.availableForWrite()>=int(n)) Serial1.write(reinterpret_cast<const uint8_t*>(b),n);
+}
+#endif
 static void raceStart() {
   motors.stop();
 #if LFR_ALLOW_RACE_START == 0
@@ -670,9 +711,11 @@ static void raceStart() {
   // Do not count a slow I2C screen transfer in lap/launch timing.
   raceStartMs=millis();
   raceLaunchUntilMs=raceStartMs+140;
+  controller.setTurnMode(turnMode);
   controller.start(raceStartMs,f.pos,f.fullMarker || f.fullBlack);
   lastControlUs=micros();
 #if LFR_RACE_TELEMETRY
+  Serial1.println("T_MS,STATE,PROFILE,TURN,ACTIVE,POS,CONF,FLAGS,JUNC,ROUTE,L_PWM,R_PWM,SCAN_US,LOOP_MAX_US");
   lastTelemMs=millis();
 #endif
 #endif
@@ -722,6 +765,7 @@ static void enterMenu() {
       } else notice("SAVE FAILED","CHECK EEPROM SIZE");
       break;
     case 14:drawResetConfirm();break;
+    case 15:openModeSelect(ModeKind::Turn);break;
   }
 }
 static void handleButton(uint8_t event) {
@@ -917,12 +961,9 @@ void loop() {
       const uint32_t workUs=micros()-tUs;
       if(workUs>raceMaxLoopUs) raceMaxLoopUs=workUs;
 #if LFR_RACE_TELEMETRY
-      if(millis()-lastTelemMs>=50) {
+      if(millis()-lastTelemMs>=20) {
         lastTelemMs=millis();
-        Serial1.print("P:");Serial1.print(frame.pos);
-        Serial1.print(" L:");Serial1.print(command.left);
-        Serial1.print(" R:");Serial1.print(command.right);
-        Serial1.print(" N:");Serial1.println(frame.active);
+        telemetryLine(frame,command);
       }
 #endif
     }

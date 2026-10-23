@@ -35,8 +35,12 @@
 #ifndef LFR_ALLOW_RACE_START
 #define LFR_ALLOW_RACE_START 0
 #endif
-// 0 = do not print in the timing-critical race loop; 1 = ~5 Hz UART diagnostic.
+// 0 = no output in the timing-critical race loop (default).
+// 1 = V3.5 CSV telemetry on Serial1 at ~50 Hz; a line is DROPPED (never waits)
+//     when the UART buffer lacks room. Header: see TELEMETRY in the sketch.
+#ifndef LFR_RACE_TELEMETRY
 #define LFR_RACE_TELEMETRY 0
+#endif
 #define LFR_OLED_ADDRESS 0x3C
 // UI orientation: 0 = preserve V3 screen orientation; 1 = rotate display 180 degrees.
 // Change this ONLY if the OLED appears physically upside down.
@@ -94,6 +98,17 @@
 #define LFR_FAN_MIN_ACTIVE 6U
 #define LFR_FAN_CONFIRM_MS 120U
 static_assert(LFR_FINISH_CONFIRM_MS>LFR_CROSSING_MAX_MS,"finish must outlast a crossing");
+// V3.5 FAST turn (runtime TURN MODE menu, RAM only: CLASSIC after every boot).
+// UNTUNED starting points for the 510-530 g chassis; measure before raising.
+// Pre-brake: hold the corner pivot while the recent forward command bleeds off.
+#define LFR_FAST_BRAKE_MS_PER_100PWM 25U
+#define LFR_FAST_BRAKE_MAX_MS 60U
+// Early catch: end the pivot when the new line reaches this |pos| from the
+// turning side, then a short opposite pulse to stop the rotation.
+#define LFR_FAST_CATCH_POS 2600
+#define LFR_FAST_COUNTER_MS 15U
+// After a FAST turn the speed limit ramps from curvePWM back to the plan.
+#define LFR_FAST_EXIT_RAMP_MS 150U
 
 namespace lfr {
 static constexpr uint8_t SENSOR_COUNT = 14;
@@ -146,8 +161,10 @@ enum class RouteStep : uint8_t { Straight=0, Left=1, Right=2, UTurn=3 };
 enum class GapMode : uint8_t { Recover=0, Stop=1 };
 enum class Profile : uint8_t { Safe=0, Balanced=1, Fast=2, Sprint=3, Technical=4 };
 enum class DriveState : uint8_t {
-  Idle, Follow, Gap, Pivot, JunctionAdvance, Marker, Finished, Fault
+  Idle, Follow, Gap, Pivot, JunctionAdvance, Marker, Finished, Fault,
+  Brake, Catch   // V3.5 FAST turn phases (never entered in CLASSIC)
 };
+enum class TurnMode : uint8_t { Classic=0, Fast=1 };
 
 struct Settings {
   uint8_t lineMode;

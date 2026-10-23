@@ -15,6 +15,10 @@ public:
   uint8_t routeUsed() const {return routeUsed_;}
   bool routePending() const {return routePending_;}
   const char* status() const;
+  // V3.5: CLASSIC (default) or FAST turn phases. RAM only, set before start().
+  void setTurnMode(TurnMode m) {turnMode_=m;}
+  TurnMode turnMode() const {return turnMode_;}
+  Command lastCommand() const {return lastCmd_;}
 private:
   DriveState state_=DriveState::Idle;
   PID pid_;
@@ -44,7 +48,18 @@ private:
   // Ghost Recovery Memory: remembers last good line state for intelligent gap recovery
   float lastGoodError_=0.0f;
   float lastGoodRate_=0.0f;
+  // V3.5 FAST turn state. cmdAvg_ is the smoothed COMMANDED forward PWM, a
+  // speed proxy only (no encoders): it is not a measured wheel speed.
+  TurnMode turnMode_=TurnMode::Classic;
+  Command lastCmd_={0,0};
+  float cmdAvg_=0.0f;
+  uint32_t now_=0,exitRampStart_=0;
+  bool exitRamp_=false;
+  int8_t brakeSide_=0;
+  uint16_t brakeMs_=0,brakePivotMax_=900;
   void enter(DriveState state,uint32_t nowMs);
+  Command decide(const SensorFrame &f,const Settings &s,uint32_t nowMs,float dt);
+  Command beginCorner(int8_t side,uint32_t nowMs,uint16_t maximum,const Settings &s);
   void startPivot(int8_t direction,uint32_t nowMs,bool wasCenter,
                   uint16_t minimum=90,uint16_t maximum=900);
   Command pivot(const Settings &s) const;

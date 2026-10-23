@@ -21,6 +21,7 @@ void Controller::start(uint32_t nowMs,int16_t initialPosition,bool startingOnFul
   junctions_=routeUsed_=0;
   routePending_=false;commitFrames_=0;markerArmed_=false;
   lastCleanMs_=0;fanSide_=0;fanSince_=0;cornerSide_=0;cornerSeenMs_=0;
+  lastCmd_=Command{0,0};cmdAvg_=0.0f;exitRamp_=false;brakeSide_=0;brakeMs_=0;
   pending_=RouteStep::Straight;
   cornerBrakeFrames_=0;
   lastGoodError_=0.0f;lastGoodRate_=0.0f;
@@ -30,7 +31,8 @@ void Controller::stop() {state_=DriveState::Idle;startPad_=false;pid_.reset();}
 bool Controller::active() const {
   return state_==DriveState::Follow || state_==DriveState::Gap ||
          state_==DriveState::Pivot || state_==DriveState::JunctionAdvance ||
-         state_==DriveState::Marker;
+         state_==DriveState::Marker || state_==DriveState::Brake ||
+         state_==DriveState::Catch;
 }
 const char* Controller::status() const {
   switch(state_) {
@@ -41,6 +43,8 @@ const char* Controller::status() const {
     case DriveState::JunctionAdvance:return "JUNCTION";
     case DriveState::Marker:return "MARKER";
     case DriveState::Finished:return "FINISHED";
+    case DriveState::Brake:return "BRAKE";
+    case DriveState::Catch:return "CATCH";
     default:return "FAULT";
   }
 }
@@ -97,6 +101,19 @@ Command Controller::takeJunction(const SensorFrame &options,const SensorFrame &f
   enter(DriveState::JunctionAdvance,nowMs);
   return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
 }
+// Corner pivot entry. FAST: hold the pivot (zero command) while the recent
+// forward command bleeds off, so the 510-530 g robot does not overshoot.
+Command Controller::beginCorner(int8_t side,uint32_t nowMs,uint16_t maximum,const Settings &s) {
+  if(turnMode_==TurnMode::Fast && cmdAvg_>float(s.curvePWM)) {
+    const float ms=cmdAvg_*float(LFR_FAST_BRAKE_MS_PER_100PWM)*0.01f;
+    brakeMs_=uint16_t(ms>float(LFR_FAST_BRAKE_MAX_MS)?float(LFR_FAST_BRAKE_MAX_MS):ms);
+    brakeSide_=side<0?-1:1;brakePivotMax_=maximum;
+    enter(DriveState::Brake,nowMs);
+    return Command{0,0};
+  }
+  startPivot(side,nowMs,false,38,maximum);
+  return pivot(s);
+}
 Command Controller::follow(const SensorFrame &f,const Settings &s,float dt) {
   const float error=float(f.pos)*0.001f;
   const float previous=float(lastPos_)*0.001f;
@@ -141,6 +158,15 @@ Command Controller::follow(const SensorFrame &f,const Settings &s,float dt) {
   // Smooth continuous deceleration with curvature (no discrete step shocks)
   float speed=boostSpeed-(float(boostSpeed-s.curvePWM)*curvature);
   if(f.confidence<300) speed-=6.f;
+  // FAST: after a turn the limit ramps from curvePWM back to the plan.
+  if(exitRamp_) {
+    const float t=float(now_-exitRampStart_)/float(LFR_FAST_EXIT_RAMP_MS);
+    if(t>=1.0f) exitRamp_=false;
+    else {
+      const float limit=float(s.curvePWM)+float(int(s.basePWM)-int(s.curvePWM))*t;
+      if(speed>limit) speed=limit;
+    }
+  }
   if(speed<float(s.curvePWM)) speed=s.curvePWM;
 
   // ── Adaptive Gain Scheduling ──
@@ -186,6 +212,14 @@ Command Controller::follow(const SensorFrame &f,const Settings &s,float dt) {
 }
 Command Controller::tick(const SensorFrame &f,const Settings &s,
                          uint32_t nowMs,float dt) {
+  now_=nowMs;
+  const Command c=decide(f,s,nowMs,dt);
+  lastCmd_=c;
+  cmdAvg_+=(0.5f*float(c.left+c.right)-cmdAvg_)*0.1f;  // ~30 ms at 333 Hz
+  return c;
+}
+Command Controller::decide(const SensorFrame &f,const Settings &s,
+                           uint32_t nowMs,float dt) {
   const Command stop={0,0};
   if(!active()) return stop;
   if(!(dt>0.f) || dt>0.030f) {enter(DriveState::Fault,nowMs);return stop;}
@@ -215,9 +249,47 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
     if(seenFrames_<8)++seenFrames_;
   } else seenFrames_=0;
 
+  if(state_==DriveState::Brake) {
+    // A false corner (line back in the centre) cancels the turn.
+    if(f.seen && f.center && f.active<=5 && !f.junction && !f.fullMarker &&
+       f.pos>-1900 && f.pos<1900) {
+      enter(DriveState::Follow,nowMs);
+      pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
+      return follow(f,s,dt);
+    }
+    if(elapsed>=brakeMs_) {
+      startPivot(brakeSide_,nowMs,false,38,brakePivotMax_);
+      return pivot(s);
+    }
+    return stop;
+  }
+  if(state_==DriveState::Catch) {
+    if(elapsed>=LFR_FAST_COUNTER_MS) {
+      commitRoute();
+      enter(DriveState::Follow,nowMs);
+      pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
+      cooldownUntil_=nowMs+150;
+      exitRamp_=true;exitRampStart_=nowMs;
+      if(!f.seen) {enter(DriveState::Gap,nowMs);return stop;}
+      return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
+    }
+    // Short opposite pulse at half turn PWM stops the rotation at the line.
+    const int16_t pwm=int16_t(s.turnPWM/2);
+    return pivotDirection_<0?Command{pwm,int16_t(-pwm)}:Command{int16_t(-pwm),pwm};
+  }
   if(state_==DriveState::Pivot) {
     if(elapsed>pivotMaximumMs_) {enter(DriveState::Fault,nowMs);return stop;}
     if(!f.center) oldCenterCleared_=true;
+    // FAST early catch: the new line sweeps in from the turning side; stop
+    // turning before it reaches the centre instead of overshooting it.
+    if(turnMode_==TurnMode::Fast && oldCenterCleared_ && elapsed>=pivotMinimumMs_ &&
+       f.seen && f.active<=5 && !f.junction && !f.fullMarker &&
+       int32_t(f.pos)*pivotDirection_>=0 &&
+       f.pos>=-LFR_FAST_CATCH_POS && f.pos<=LFR_FAST_CATCH_POS) {
+      enter(DriveState::Catch,nowMs);
+      const int16_t pwm=int16_t(s.turnPWM/2);
+      return pivotDirection_<0?Command{pwm,int16_t(-pwm)}:Command{int16_t(-pwm),pwm};
+    }
     if(oldCenterCleared_ && f.seen && f.center && f.active<=5 &&
        !f.junction && !f.fullMarker && f.pos>-1900 && f.pos<1900) {
       if(centerFrames_<8)++centerFrames_;
@@ -341,9 +413,9 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
     const bool cornerFan=cornerSide_!=0 && (nowMs-cornerSeenMs_)<=LFR_FAN_CONFIRM_MS;
     fanSide_=0;
     if(cornerFan || lastPos_<=-3800 || lastPos_>=3800) {
-      startPivot(cornerFan?cornerSide_:(lastPos_<0?-1:1),nowMs,false,38,800);
+      const int8_t side=cornerFan?cornerSide_:(lastPos_<0?-1:1);
       cornerSide_=0;
-      return pivot(s);
+      return beginCorner(side,nowMs,800,s);
     }
     pid_.reset(float(lastPos_)*0.001f);
     enter(DriveState::Gap,nowMs);
@@ -366,8 +438,7 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
   const bool instantLock=(side!=0 && fabsf(float(f.pos))>4800.0f);
   if(edgeFrames_>=2 || instantLock) {
     lastPos_=f.pos;
-    startPivot(side,nowMs,f.center,38,900);
-    return pivot(s);
+    return beginCorner(side,nowMs,900,s);
   }
 
   // Connected side branch: one blob from an edge into the centre. A 90-degree

@@ -54,5 +54,9 @@ struct MockSerial {
   void begin(uint32_t) {}
   template<class T>void print(T) {}
   template<class T>void println(T) {}
+  int room=64;  // free TX bytes; tests shrink it to prove lines are dropped
+  int availableForWrite() {return room;}
+  size_t write(const uint8_t*,size_t n) {written+=n;return n;}
+  size_t written=0;
 };
 extern MockSerial Serial1;

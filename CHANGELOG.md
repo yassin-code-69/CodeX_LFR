@@ -1,3 +1,15 @@
+# LFR PRO V3.5 - Performance candidate (branch `dev/v3.5-performance`, from V3.4 `867289e`)
+
+Everything new is OFF / CLASSIC by default; hardware, pins, four buttons, PWM and EEPROM format unchanged. Not physically tested.
+
+- **TURN MODE (menu item 16): CLASSIC / FAST, RAM only** (CLASSIC after every power-up, never saved, so an experimental mode cannot auto-arm).
+- **FAST turn phases** (`LFR_Control.cpp`): corner detection -> `BRAKE` (zero command, 25 ms per 100 PWM of recent commanded forward PWM, max 60 ms; a centred line cancels it) -> `PIVOT` -> early `CATCH` when the new line enters +-2600 from the turning side (opposite pulse at half turn PWM for 15 ms) -> `FOLLOW` with a 150 ms speed ramp from curve to base PWM. SCRIPT steps commit at CATCH exit. CLASSIC path is unchanged and is what every pre-V3.5 test exercises.
+- Speed proxy is the smoothed commanded PWM, explicitly not a measured speed (no encoders).
+- **Telemetry** (`LFR_RACE_TELEMETRY 1`): CSV at ~50 Hz on Serial1 (state, profile, turn mode, sensor flags, position, confidence, junctions, route, PWM, scan and loop time); a row is dropped, never waited for, when the UART buffer lacks room. Arm screen tag shows `FAST` when FAST turn mode is selected.
+- Tests: `tests/run_v35_tests.sh` (FAST phases and guards, CLASSIC unchanged, SCRIPT commit through CATCH, 2 x 100,000-tick seeded stress with PWM-bound/interlock/phase-duration invariants, TURN MODE menu, telemetry drop-not-block). All 61 host PASS lines also pass under UBSan trap mode.
+- STM32 (0 warnings): default 48,672 B flash / 4,088 B RAM; `FAST_SENSOR=0` 51,292 / 4,092; `RACE_START=1 TELEMETRY=1` 50,160 / 4,104.
+- Docs: `docs/ARCHITECTURE.md`, `CONFIG_PARAMETERS.md`, `PIN_HARDWARE_LOCK.md`, `TEST_RESULTS.md`, `REMAINING_RISKS.md`, `TOMORROW_UNIVERSITY_TEST_PLAN.md`; `WORKSPACE.md` names the active source tree.
+
 # LFR PRO V3.4 - Phase A reliability and safety (branch `dev/v3.4-phase-a`)
 
 Hardware, pins, the four buttons (UP PB13, DOWN PB12, ENTER PB5, BACK/E-STOP PB3), PWM frequency, menus and the EEPROM record format are unchanged. Every fix below has a host regression test; none is physically validated yet.
