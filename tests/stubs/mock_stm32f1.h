@@ -49,6 +49,8 @@ struct MockAdc {
   MockAdcCr2 CR2;
   MockAdcDr DR;
   bool dead=false;  // never completes a conversion (fault-path test)
+  bool calStuck=false;  // RSTCAL/CAL never clear (init fault injection)
+  int dieAfter=-1;      // >=0: ADC dies after this many conversions
   int conversions=0,resetCalibrations=0,calibrations=0;
 };
 inline MockAdc mockAdc1Instance;
@@ -58,11 +60,12 @@ inline MockGpio mockGpioAInstance;
 inline MockAdcCr2 &MockAdcCr2::operator|=(uint32_t x) {
   MockAdc &adc=mockAdc1Instance;
   v|=x;
-  if(x&ADC_CR2_RSTCAL) {++adc.resetCalibrations;v&=~ADC_CR2_RSTCAL;}
-  if(x&ADC_CR2_CAL) {++adc.calibrations;v&=~ADC_CR2_CAL;}
+  if(x&ADC_CR2_RSTCAL) {++adc.resetCalibrations;if(!adc.calStuck)v&=~ADC_CR2_RSTCAL;}
+  if(x&ADC_CR2_CAL) {++adc.calibrations;if(!adc.calStuck)v&=~ADC_CR2_CAL;}
   if(x&ADC_CR2_SWSTART) {
     v&=~ADC_CR2_SWSTART;
     const bool swTrigger=(v&ADC_CR2_EXTTRIG) && (v&ADC_CR2_EXTSEL)==ADC_CR2_EXTSEL;
+    if(adc.dieAfter>=0 && adc.conversions>=adc.dieAfter) adc.dead=true;
     if(!adc.dead && (v&ADC_CR2_ADON) && swTrigger) {
       const int mux=mockDigital[PA7] | mockDigital[PA6]<<1 |
                     mockDigital[PA4]<<2 | mockDigital[PA3]<<3;

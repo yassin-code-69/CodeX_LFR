@@ -72,7 +72,10 @@ static void testGap() {
   c.start(0,0);
   c.tick(frame(0,false),s,5,.005f);
   assert(c.state()==DriveState::Gap);
-  for(uint32_t t=10;t<200;t+=5)c.tick(frame(0,false),s,t,.005f);
+  uint32_t t=10;
+  for(;t<=LFR_GAP_RECOVER_MS;t+=5)c.tick(frame(0,false),s,t,.005f);
+  assert(c.state()==DriveState::Gap);  // still inside the blind-crossing budget
+  for(;t<=LFR_GAP_RECOVER_MS+20;t+=5)c.tick(frame(0,false),s,t,.005f);
   assert(c.state()==DriveState::Fault);
   s.gapMode=uint8_t(GapMode::Stop);c.start(0,0);
   c.tick(frame(0,false),s,5,.005f);
@@ -88,10 +91,14 @@ static void testScript() {
   c.tick(j,s,5,.005f);c.tick(j,s,10,.005f);
   c.tick(j,s,15,.005f);
   assert(c.state()==DriveState::JunctionAdvance);
-  assert(c.junctionCount()==1 && c.routeUsed()==1);
+  // V3.4 transaction: the step is proposed, not committed, until the line is back.
+  assert(c.junctionCount()==1 && c.routeUsed()==0 && c.routePending());
   auto cmd=c.tick(j,s,55,.005f);
   assert(c.state()==DriveState::Pivot && cmd.left<0);
-  printf("PASS scripted junction route and delayed pivot\n");
+  c.tick(frame(-5200),s,70,.005f);           // old centre line leaves the bar
+  for(uint32_t t=150;t<=160;t+=5) c.tick(frame(0),s,t,.005f);
+  assert(c.state()==DriveState::Follow && c.routeUsed()==1 && !c.routePending());
+  printf("PASS scripted junction route, delayed pivot, commit after reacquire\n");
 }
 static void testSensor() {
   for(int i=0;i<16;++i)mockMuxADC[i]=160;

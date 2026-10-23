@@ -1,0 +1,7 @@
+### audit repros vs V3.4
+Assertion failed: route.state()==DriveState::JunctionAdvance && route.routeUsed()==1, file <scratch>/repro_zip/audit_reproduction/test_open_risks.cpp, line 23
+open_risks exit=127
+Assertion failed: spent>=900, file <scratch>/repro_zip/audit_reproduction/test_adc_calibration_abort.cpp, line 13
+adc_cal_abort exit=127
+Assertion failed: !sensor.adcFault(), file <scratch>/repro_zip/audit_reproduction/test_adc_init_timeout.cpp, line 12
+adc_init_timeout exit=127

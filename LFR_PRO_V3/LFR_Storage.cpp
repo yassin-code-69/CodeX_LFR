@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <stddef.h>
+#include <string.h>
 #include "LFR_Storage.h"
 namespace lfr {
 struct Store3 {
@@ -130,6 +131,10 @@ bool saveSettings(const Settings &cfg,const Calibration &cal,bool calValid) {
   if(va || vb) {
     const bool newerB=vb && (!va || int32_t(b.sequence-a.sequence)>0);
     const Store3 &latest=newerB?b:a;
+    // Nothing changed: skip the page erase (less wear, no power-cut window).
+    if(latest.hasCalibration==(calValid?1U:0U) &&
+       memcmp(&latest.settings,&cfg,sizeof(Settings))==0 &&
+       (!calValid || memcmp(&latest.cal,&cal,sizeof(Calibration))==0)) return true;
     sequence=latest.sequence+1;
     next=newerB?SLOT_A:SLOT_B;
   }

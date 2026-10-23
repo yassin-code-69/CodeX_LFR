@@ -249,7 +249,8 @@ static void notice(const char *msg,const char *second) {
 }
 static void drawMenu() {
   page=Page::Menu;motors.stop();
-  topBar("GENGRIX-X1",haveCalibration?(changed?"CAL!":"CAL"):"NO CAL");
+  topBar("GENGRIX-X1",sensor.adcFault()?"ADC ERR":
+         (haveCalibration?(changed?"CAL!":"CAL"):"NO CAL"));
   // A fixed two-digit seven-segment number avoids the letter-like 5x7 digits.
   const uint8_t first=menuIndex>=3?uint8_t(menuIndex-3):0;
   for(uint8_t row=0;row<4;++row) {
@@ -279,7 +280,7 @@ static void drawMenu() {
   oled.show();
 }
 static void drawSensor(const SensorFrame &f) {
-  topBar("SENSOR LIVE",settings.lineMode==0?"BLACK":"WHITE");
+  topBar("SENSOR LIVE",sensor.adcFault()?"ADC ERR":(settings.lineMode==0?"BLACK":"WHITE"));
   // Calibrated sensor bar-graph: each channel is independently scaled.
   for(uint8_t i=0;i<SENSOR_COUNT;++i) {
     const uint16_t strength=haveCalibration?f.norm[i]:
@@ -347,9 +348,25 @@ static void performAutoSweep() {
   Settings physical=settings;
   physical.mirror=0;
 
+  // Never spin the wheels on a dead ADC: one scan with the motors stopped first.
+  {
+    SensorFrame probe={};
+    sensor.read(probe,calibration,false,physical);
+    if(sensor.adcFault()) {
+      motors.stop();soundChime(Chime::Error);
+      notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;
+    }
+  }
   const uint32_t startMs=millis();
   while(millis()-startMs<900) {
     if(backIsDown()) {motors.stop();notice("AUTO CAL","ABORTED BY USER");return;}
+    // Scan before driving so a fault seen in this scan stops the motors at once.
+    SensorFrame f={};
+    sensor.read(f,calibration,false,physical);
+    if(sensor.adcFault()) {
+      motors.stop();soundChime(Chime::Error);
+      notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;
+    }
     const uint32_t elapsed=millis()-startMs;
     if(elapsed<225) {
       motors.drive(Command{int16_t(-sweepPWM),sweepPWM},sweepSettings,true);
@@ -358,8 +375,6 @@ static void performAutoSweep() {
     } else {
       motors.drive(Command{int16_t(-sweepPWM),sweepPWM},sweepSettings,true);
     }
-    SensorFrame f={};
-    sensor.read(f,calibration,false,physical);
     for(uint8_t i=0;i<SENSOR_COUNT;++i) {
       const uint16_t raw=f.raw[i];
       if(raw<minVals[i]) minVals[i]=raw;
@@ -389,6 +404,11 @@ static void performScan() {
   motors.stop();
   uint16_t captured[SENSOR_COUNT];
   sensor.capture(captured);
+  if(sensor.adcFault()) {
+    scannedWhite=scannedBlack=false;
+    soundChime(Chime::Error);
+    notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;
+  }
   if(scanBlack) {
     for(uint8_t i=0;i<SENSOR_COUNT;++i)pendingCalibration.black[i]=captured[i];
     scannedBlack=true;
@@ -634,7 +654,8 @@ static void raceStart() {
   }
   SensorFrame f={};sensor.resetTracking();sensor.read(f,calibration,true,settings);
   if(sensor.adcFault()) {notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;}
-  if(!f.seen || (!f.fullMarker && (f.pos<-4200 || f.pos>4200))) {
+  // A start pad is accepted in either LINE mode (fullBlack: black pad in WHITE mode).
+  if(!(f.fullMarker || f.fullBlack) && (!f.seen || f.pos<-4200 || f.pos>4200)) {
     notice("START LINE INVALID","CENTER ON LINE");return;
   }
   page=Page::Race;
@@ -649,7 +670,7 @@ static void raceStart() {
   // Do not count a slow I2C screen transfer in lap/launch timing.
   raceStartMs=millis();
   raceLaunchUntilMs=raceStartMs+140;
-  controller.start(raceStartMs,f.pos,f.fullMarker);
+  controller.start(raceStartMs,f.pos,f.fullMarker || f.fullBlack);
   lastControlUs=micros();
 #if LFR_RACE_TELEMETRY
   lastTelemMs=millis();
@@ -668,7 +689,8 @@ static void armLaunch() {
   }
   SensorFrame f={};sensor.resetTracking();sensor.read(f,calibration,true,settings);
   if(sensor.adcFault()) {notice("SENSOR ADC FAULT","SET FAST SENSOR 0");return;}
-  if(!f.seen || (!f.fullMarker && (f.pos<-4200 || f.pos>4200))) {
+  // A start pad is accepted in either LINE mode (fullBlack: black pad in WHITE mode).
+  if(!(f.fullMarker || f.fullBlack) && (!f.seen || f.pos<-4200 || f.pos>4200)) {
     notice("START LINE INVALID","CENTER ON LINE");return;
   }
   page=Page::Countdown;

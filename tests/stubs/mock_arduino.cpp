@@ -10,6 +10,7 @@ int mockDigital[64]={};
 int mockPwm[64]={};
 int mockMuxADC[16]={};
 int mockAnalogReads=0;
+int mockPwmNonZeroWrites=0;
 int (*mockAdcHook)(int mux)=nullptr;
 int mockEepromFlushes=0;
 void pinMode(uint32_t,int){}
@@ -21,7 +22,7 @@ int analogRead(uint32_t) {
           mockDigital[PA4]<<2 | mockDigital[PA3]<<3;
   return mockAdcHook?mockAdcHook(mux):mockMuxADC[mux];
 }
-void analogWrite(uint32_t p,int duty){mockPwm[p]=duty;}
+void analogWrite(uint32_t p,int duty){mockPwm[p]=duty;if(duty>0)++mockPwmNonZeroWrites;}
 void analogReadResolution(uint8_t){}
 void analogWriteResolution(uint8_t){}
 void analogWriteFrequency(uint32_t){}

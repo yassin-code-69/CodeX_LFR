@@ -1,3 +1,4 @@
+# HISTORICAL V3.2 corrective patch only. It does NOT contain V3.3/V3.4 changes; use git history.
 diff --git a/LFR_PRO_V3/LFR_Config.h b/LFR_PRO_V3/LFR_Config.h
 --- a/LFR_PRO_V3/LFR_Config.h
 +++ b/LFR_PRO_V3/LFR_Config.h

@@ -1,3 +1,27 @@
+# LFR PRO V3.4 - Phase A reliability and safety (branch `dev/v3.4-phase-a`)
+
+Hardware, pins, the four buttons (UP PB13, DOWN PB12, ENTER PB5, BACK/E-STOP PB3), PWM frequency, menus and the EEPROM record format are unchanged. Every fix below has a host regression test; none is physically validated yet.
+
+| ID | Root cause (V3.3) | Change | Regression test | Remaining limitation |
+|---|---|---|---|---|
+| F01 T/+ | A crossing line darkens all 14 sensors, so it was `fullMarker` (pad) and never a junction; a T then ended GAP -> FAULT, a + never consumed its SCRIPT step | Marker that clears within `LFR_CROSSING_MAX_MS` (200 ms) after an armed entry is an intersection: both arms exist, straight exists only if the line continues; normal junction decision (`takeJunction`) | `test_v34_navigation`: T (STRAIGHT -> left, SCRIPT R), +, SCRIPT S at a T stops safely, sensor-level T through real `Sensor::read` | A narrow pad crossed faster than 200 ms, or a crossing crossed slower than 200 ms, is misread. Tune the constant on the real track. |
+| F01 side branch | A connected edge-to-centre blob is also a 90-degree corner, so V3.2 never counted it | Branch is a junction only if it follows a clean approach and the narrow centred line resumes within 120 ms; if the line is lost instead it is a corner and the robot pivots to the fan side | side branch STRAIGHT/SCRIPT L, wrong-side SCRIPT stops, corner pivots right, fan without clean approach ignored | Optically identical patterns remain ambiguous; physical replay needed |
+| F02 finish | 24 ms confirmation made a broad crossing a finish; one non-clean frame zeroed the clean-approach counter | Finish confirm 250 ms (> crossing max, static_assert); non-clean frames shorter than 40 ms keep the approach history | crossing with FINISH ON is a junction, not FINISHED; one glitch frame still finishes | Finish and a black area wider than the bar are indistinguishable optically; FINISH stays OFF by default |
+| F03 white mode | `fullMarker` follows the selected line colour; a black pad in WHITE mode is "no line", arming refused | `SensorFrame::fullBlack` (unfiltered, polarity independent); arming and start-pad phase accept it, pad phase ends when the line is seen, 1500 ms bound | sensor + controller test; sketch test arms on a black pad in WHITE mode, drives off, BACK stops | Pad direction must point at the line |
+| F04 route | `routeUsed_++` inside `choose()` before the manoeuvre | propose -> execute -> commit: turns commit on pivot exit (line centred), STRAIGHT after 3 clean frames; no new junction while pending; FAULT leaves the step uncommitted; finish requires no pending step | `test_v3` script test, failed pivot keeps routeUsed 0, repeated junction frames counted once | Route is still junction-count based, not checkpoint aware (F13) |
+| F05 auto-sweep | ADC fault was never checked while motors swept | one scan with motors stopped first; scan before every drive step, fault -> motors stop, notice; manual scan discards faulted captures | ADC dying mid-sweep stops after the faulty scan (was 900 ms); latched fault never drives, scans store nothing | analogRead fallback (`LFR_FAST_SENSOR 0`) cannot detect ADC faults |
+| F06 ADC init | RSTCAL/CAL/ADON completion not validated | fault latched if reset/calibration bits stay set or ADON/clock missing; latched fault makes conversions return at once | stuck calibration -> `adcFault`, next scan does no conversions | Real-silicon fault rate unknown |
+| F07 storage | both slots in one 1 KB page (documented in V3.3) | identical saves skip the erase; corrupt/blank flash boots SAFE defaults with no calibration so arming is refused | unchanged save writes nothing; blank flash -> defaults, arming refused | A power cut during SAVE can still lose both slots (no two-page journal yet) |
+| F08 gap | fixed 180 ms | `LFR_GAP_RECOVER_MS` 300 ms (STOP 55 ms), bounded | 250 ms gap recovers; >300 ms stops | 10 cm needs >= 0.33 m/s at curve PWM; measure |
+| F09 switches | rule says max two switches | **no change**: all four buttons kept; flagged for the organiser | - | competition compliance unresolved |
+| F12 patch | `SOURCE_CHANGES.patch` is V3.2 only | labelled historical in `WORKSPACE.md` | - | - |
+
+Also: OLED shows `ADC ERR` in the menu and SENSOR LIVE header when the ADC fault is latched.
+
+Real STM32 build (arduino-cli 1.5.1, STM32 core 3.0.0, BLUEPILL_F103C8, `--warnings all`, 0 warnings): default 47,696 B flash / 4,052 B RAM; `LFR_FAST_SENSOR=0` 50,316 B / 4,056 B; `DUMMY_READ=1 + RACE_START=1` 48,656 B / 4,068 B. V3.3 default was 46,712 B / 4,024 B.
+
+Intentionally changed expectations in older tests: gap budget 180 -> 300 ms (`test_v3`), finish confirm 24 -> 250 ms (`test_v32_regressions`), unchanged saves no longer write (`test_v33_foundation`), SCRIPT step committed after reacquire (`test_v3`).
+
 # LFR PRO V3.3 - Speed Foundation (on top of V3.2)
 
 Goal: groundwork for higher speed and accuracy (KakaRobot-style performance) without changing race behaviour yet. Steering, PID, junction and turn logic are unchanged.

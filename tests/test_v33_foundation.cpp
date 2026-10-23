@@ -54,12 +54,16 @@ static void testAutoSweepMirror() {
 }
 static void testSingleFlashWritePerSave() {
   const Calibration cal=flatCalibration();
+  Settings edited=settings;
   const int before=mockEepromFlushes;
-  assert(saveSettings(settings,cal,true));
+  assert(saveSettings(edited,cal,true));
   assert(mockEepromFlushes-before==1);
-  assert(saveSettings(settings,cal,true));  // other slot, still one page write
+  edited.basePWM=uint8_t(edited.basePWM+1);
+  assert(saveSettings(edited,cal,true));  // other slot, still one page write
   assert(mockEepromFlushes-before==2);
-  puts("PASS each SAVE SETTINGS is exactly one flash page write");
+  assert(saveSettings(edited,cal,true));  // V3.4: unchanged record, no erase
+  assert(mockEepromFlushes-before==2);
+  puts("PASS each changed SAVE SETTINGS is one flash page write; unchanged saves write nothing");
 }
 static void testRaceLoopMeasurements() {
   for(int i=0;i<16;++i) mockMuxADC[i]=160;

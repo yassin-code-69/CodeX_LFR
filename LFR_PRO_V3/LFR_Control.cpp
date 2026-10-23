@@ -19,6 +19,8 @@ void Controller::start(uint32_t nowMs,int16_t initialPosition,bool startingOnFul
   startPad_=startingOnFullMarker;finishEligible_=false;lastJunctionAt_=0;
   pivotDirection_=-1;pivotMinimumMs_=38;pivotMaximumMs_=900;
   junctions_=routeUsed_=0;
+  routePending_=false;commitFrames_=0;markerArmed_=false;
+  lastCleanMs_=0;fanSide_=0;fanSince_=0;cornerSide_=0;cornerSeenMs_=0;
   pending_=RouteStep::Straight;
   cornerBrakeFrames_=0;
   lastGoodError_=0.0f;lastGoodRate_=0.0f;
@@ -56,8 +58,9 @@ Command Controller::pivot(const Settings &s) const {
 }
 bool Controller::choose(const Settings &s,const SensorFrame &f,RouteStep &choice) {
   if(s.navMode==uint8_t(NavMode::Script)) {
+    // Propose only: the step is committed after the line is reacquired.
     if(routeUsed_>=s.routeCount) return false;
-    choice=RouteStep(s.route[routeUsed_++]);return true;
+    choice=RouteStep(s.route[routeUsed_]);routePending_=true;return true;
   }
   if(s.navMode==uint8_t(NavMode::Left))
     choice=f.leftEdge?RouteStep::Left:(f.center?RouteStep::Straight:RouteStep::Right);
@@ -66,6 +69,33 @@ bool Controller::choose(const Settings &s,const SensorFrame &f,RouteStep &choice
   else
     choice=f.center?RouteStep::Straight:(f.leftEdge?RouteStep::Left:RouteStep::Right);
   return true;
+}
+void Controller::commitRoute() {
+  if(routePending_) {++routeUsed_;routePending_=false;}
+  commitFrames_=0;
+}
+// One junction decision. `options` says which branches physically exist
+// (leftEdge/rightEdge/center). Strict callers stop on a SCRIPT step that asks
+// for a branch the pattern did not show instead of turning into nothing.
+Command Controller::takeJunction(const SensorFrame &options,const SensorFrame &f,
+                                 const Settings &s,uint32_t nowMs,bool strict) {
+  const Command stop={0,0};
+  RouteStep chosen;
+  if(!choose(s,options,chosen)) {enter(DriveState::Fault,nowMs);return stop;}
+  if(strict && ((chosen==RouteStep::Straight && !options.center) ||
+                (chosen==RouteStep::Left && !options.leftEdge) ||
+                (chosen==RouteStep::Right && !options.rightEdge))) {
+    enter(DriveState::Fault,nowMs);return stop;
+  }
+  junctionLatched_=true;clearSince_=0;
+  ++junctions_;
+  lastJunctionAt_=nowMs;
+  stableApproachFrames_=0;fanSide_=0;
+  cooldownUntil_=nowMs+360;
+  pending_=chosen;
+  lastPos_=f.pos;
+  enter(DriveState::JunctionAdvance,nowMs);
+  return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
 }
 Command Controller::follow(const SensorFrame &f,const Settings &s,float dt) {
   const float error=float(f.pos)*0.001f;
@@ -163,7 +193,9 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
   // A black START pad has no unique centroid. Clear it before arming FINISH.
   if(startPad_) {
     if(elapsed>LFR_START_PAD_TIMEOUT_MS) {enter(DriveState::Fault,nowMs);return stop;}
-    if(f.fullMarker) return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
+    // In WHITE line mode a black pad is "no line" (fullBlack, !seen).
+    if(f.fullMarker || (f.fullBlack && !f.seen))
+      return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
     startPad_=false;
     enter(DriveState::Follow,nowMs);
     pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
@@ -171,10 +203,14 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
     return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
   }
   // Clean centered approach is one supporting cue for an explicit finish pad.
+  // A short non-clean glitch (< LFR_APPROACH_HOLD_MS) keeps the history.
   if(state_==DriveState::Follow && f.seen && f.center && !f.junction &&
      !f.fullMarker && f.active<=4 && f.pos>-1300 && f.pos<1300) {
     if(stableApproachFrames_<30) ++stableApproachFrames_;
-  } else if(!f.fullMarker) stableApproachFrames_=0;
+    lastCleanMs_=nowMs;
+  } else if(!f.fullMarker && (nowMs-lastCleanMs_)>LFR_APPROACH_HOLD_MS) {
+    stableApproachFrames_=0;
+  }
   if(f.seen && !f.fullMarker && !f.junction) {
     if(seenFrames_<8)++seenFrames_;
   } else seenFrames_=0;
@@ -187,6 +223,7 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
       if(centerFrames_<8)++centerFrames_;
     } else centerFrames_=0;
     if(elapsed>=pivotMinimumMs_ && centerFrames_>=2) {
+      commitRoute();  // a SCRIPT turn counts only once the line is back
       enter(DriveState::Follow,nowMs);
       pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
       cooldownUntil_=nowMs+150;
@@ -203,7 +240,7 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
     } else reacquireFrames_=0;
     if(reacquireFrames_>=2) {
       if(f.fullMarker) {
-        finishEligible_=false;
+        finishEligible_=false;markerArmed_=false;
         enter(DriveState::Marker,nowMs);
         return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
       }
@@ -212,8 +249,8 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
       cooldownUntil_=f.junction?nowMs:nowMs+150;
       return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
     }
-    // Timeout safeguard: 180ms in Recover, 55ms in Stop
-    if(elapsed>(s.gapMode==uint8_t(GapMode::Stop)?55U:180U)) {
+    // Bounded blind crossing: LFR_GAP_RECOVER_MS in Recover, LFR_GAP_STOP_MS in Stop
+    if(elapsed>(s.gapMode==uint8_t(GapMode::Stop)?LFR_GAP_STOP_MS:LFR_GAP_RECOVER_MS)) {
       enter(DriveState::Fault,nowMs);return stop;
     }
     // ── Ghost Recovery: Curve-Aware Predictive Arc Coasting ──
@@ -243,9 +280,24 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
         enter(DriveState::Fault,nowMs);return stop; // never drive blind indefinitely
       }
     } else {
+      // Still on a broad dark area (e.g. leaving it at an angle): not an exit yet.
+      if(f.seen && f.active>5) {
+        if(elapsed>LFR_MARKER_TIMEOUT_MS) {enter(DriveState::Fault,nowMs);return stop;}
+        return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
+      }
       // A thin marker is not automatically a finish without sufficient width.
       if(finishEligible_ && markerFrames_>=3 && elapsed>=LFR_FINISH_CONFIRM_MS) {
         enter(DriveState::Finished,nowMs);return stop;
+      }
+      // Cleared quickly: it was a crossing line (T or +), not a pad. The whole
+      // bar was dark, so both arms exist; straight exists only if the line
+      // continues. Same optics as a narrow pad: LFR_CROSSING_MAX_MS decides.
+      if(markerArmed_ && elapsed<=LFR_CROSSING_MAX_MS) {
+        SensorFrame options=f;
+        options.leftEdge=true;options.rightEdge=true;
+        options.center=f.seen && f.center;
+        pid_.reset(float(f.pos)*0.001f);
+        return takeJunction(options,f,s,nowMs,true);
       }
       enter(DriveState::Follow,nowMs);
       pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
@@ -274,15 +326,23 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
   if(f.fullMarker) {
     finishEligible_=s.finishOn && (nowMs-started_)>2500U &&
        (s.navMode!=uint8_t(NavMode::Script) || routeUsed_==s.routeCount) &&
-       stableApproachFrames_>=5 && !junctionLatched_ &&
+       !routePending_ && stableApproachFrames_>=5 && !junctionLatched_ &&
        (lastJunctionAt_==0 || (nowMs-lastJunctionAt_)>450U);
+    // Only a fresh dark patch may be a crossing; not one we just turned at.
+    markerArmed_=!junctionLatched_ && nowMs>=cooldownUntil_ && !routePending_;
+    fanSide_=0;
     enter(DriveState::Marker,nowMs);
     return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
   }
   if(!f.seen) {
     // Immediate edge loss: steer toward last observed edge rather than coast ahead.
-    if(lastPos_<=-3800 || lastPos_>=3800) {
-      startPivot(lastPos_<0?-1:1,nowMs,false,38,800);
+    // A connected fan just before the loss means a 90-degree corner on that side
+    // even though the blob centroid (lastPos_) never reached the edge.
+    const bool cornerFan=cornerSide_!=0 && (nowMs-cornerSeenMs_)<=LFR_FAN_CONFIRM_MS;
+    fanSide_=0;
+    if(cornerFan || lastPos_<=-3800 || lastPos_>=3800) {
+      startPivot(cornerFan?cornerSide_:(lastPos_<0?-1:1),nowMs,false,38,800);
+      cornerSide_=0;
       return pivot(s);
     }
     pid_.reset(float(lastPos_)*0.001f);
@@ -310,6 +370,36 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
     return pivot(s);
   }
 
+  // Connected side branch: one blob from an edge into the centre. A 90-degree
+  // corner shows the same blob, so decide only after it passes: the centred line
+  // continues -> branch (junction); the centre is lost -> corner (pivot above).
+  const bool fan=f.center && !f.junction && f.groups==1 &&
+                 f.active>=LFR_FAN_MIN_ACTIVE && (f.leftEdge!=f.rightEdge);
+  if(fan) {
+    cornerSide_=f.leftEdge?-1:1;cornerSeenMs_=nowMs;
+    if(fanSide_==0 && stableApproachFrames_>=5 && !junctionLatched_ &&
+       nowMs>=cooldownUntil_ && !routePending_) {
+      fanSide_=cornerSide_;fanSince_=nowMs;
+    }
+  } else if(fanSide_!=0) {
+    const bool resumed=f.center && !f.leftEdge && !f.rightEdge &&
+                       !f.junction && f.active<=5;
+    if(resumed) {
+      SensorFrame options=f;
+      options.center=true;options.leftEdge=fanSide_<0;options.rightEdge=fanSide_>0;
+      cornerSide_=0;
+      return takeJunction(options,f,s,nowMs,true);
+    }
+    if(!f.center || (nowMs-fanSince_)>LFR_FAN_CONFIRM_MS) fanSide_=0;
+  }
+
+  // A SCRIPT "straight" commits after a few clean centred frames past the junction.
+  if(routePending_ && pending_==RouteStep::Straight) {
+    const bool clean=f.center && !f.junction && f.active<=5;
+    commitFrames_=clean?uint8_t(commitFrames_<8?commitFrames_+1:8):0;
+    if(commitFrames_>=3) commitRoute();
+  }
+
   // Junction counter debounced and latched until the marker fully clears.
   if(f.junction) {
     clearSince_=0;
@@ -321,17 +411,8 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
       junctionLatched_=false;
   }
   if(f.junction && junctionFrames_>=3 && !junctionLatched_ &&
-     nowMs>=cooldownUntil_) {
-    RouteStep chosen;
-    if(!choose(s,f,chosen)) {enter(DriveState::Fault,nowMs);return stop;}
-    junctionLatched_=true;
-    ++junctions_;
-    lastJunctionAt_=nowMs;
-    stableApproachFrames_=0;
-    cooldownUntil_=nowMs+360;
-    pending_=chosen;
-    enter(DriveState::JunctionAdvance,nowMs);
-    return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
+     nowMs>=cooldownUntil_ && !routePending_) {
+    return takeJunction(f,f,s,nowMs,false);
   }
   return follow(f,s,dt);
 }

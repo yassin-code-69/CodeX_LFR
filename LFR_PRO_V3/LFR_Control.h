@@ -10,7 +10,10 @@ public:
   DriveState state() const {return state_;}
   bool active() const;
   uint8_t junctionCount() const {return junctions_;}
+  // SCRIPT steps whose manoeuvre completed (line reacquired). A step being
+  // executed is pending, not used: a failed turn never consumes a step.
   uint8_t routeUsed() const {return routeUsed_;}
+  bool routePending() const {return routePending_;}
   const char* status() const;
 private:
   DriveState state_=DriveState::Idle;
@@ -27,6 +30,15 @@ private:
   uint16_t pivotMinimumMs_=90,pivotMaximumMs_=900;
   RouteStep pending_=RouteStep::Straight;
   uint8_t junctions_=0,routeUsed_=0;
+  // V3.4 route transaction and event context.
+  bool routePending_=false;     // a SCRIPT step is being executed
+  uint8_t commitFrames_=0;      // clean frames after a STRAIGHT step
+  bool markerArmed_=false;      // this marker may be a crossing (T/+)
+  uint32_t lastCleanMs_=0;      // last clean centred frame (approach history)
+  int8_t fanSide_=0;            // side branch candidate: -1 left, +1 right
+  uint32_t fanSince_=0;
+  int8_t cornerSide_=0;         // side of the most recent connected fan
+  uint32_t cornerSeenMs_=0;
   // Corner Anticipation: counts consecutive frames where outer sensors detect line approaching edges
   uint8_t cornerBrakeFrames_=0;
   // Ghost Recovery Memory: remembers last good line state for intelligent gap recovery
@@ -37,6 +49,9 @@ private:
                   uint16_t minimum=90,uint16_t maximum=900);
   Command pivot(const Settings &s) const;
   bool choose(const Settings &s,const SensorFrame &f,RouteStep &choice);
+  void commitRoute();
+  Command takeJunction(const SensorFrame &options,const SensorFrame &f,
+                       const Settings &s,uint32_t nowMs,bool strict);
   Command follow(const SensorFrame &f,const Settings &s,float dt);
 };
 }

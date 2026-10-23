@@ -87,8 +87,8 @@ static void testStartPadAndFinishOptIn() {
   const uint32_t at=3102;
   c.tick(full(),s,at,.003f);
   assert(c.state()==DriveState::Marker);
-  for(uint32_t t=at+3;t<at+24;t+=3){c.tick(full(),s,t,.003f);assert(c.state()==DriveState::Marker);}
-  Command fin=c.tick(full(),s,at+24,.003f);
+  for(uint32_t t=at+3;t<at+LFR_FINISH_CONFIRM_MS;t+=3){c.tick(full(),s,t,.003f);assert(c.state()==DriveState::Marker);}
+  Command fin=c.tick(full(),s,at+LFR_FINISH_CONFIRM_MS,.003f);
   assert(c.state()==DriveState::Finished && fin.left==0 && fin.right==0);
   puts("PASS starting full-black pad ignored, explicit finish only after eligible sustained marker");
 }

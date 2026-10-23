@@ -46,14 +46,18 @@ void Sensor::initFastADC() {
   delayMicroseconds(3);
   ADC1->CR2|=ADC_CR2_RSTCAL;
   for(uint32_t guard=100000;(ADC1->CR2&ADC_CR2_RSTCAL) && guard;--guard) {}
+  if(ADC1->CR2&ADC_CR2_RSTCAL) adcFault_=true;   // reset never completed
   ADC1->CR2|=ADC_CR2_CAL;
   for(uint32_t guard=100000;(ADC1->CR2&ADC_CR2_CAL) && guard;--guard) {}
+  if(ADC1->CR2&ADC_CR2_CAL) adcFault_=true;      // calibration never completed
+  if(!(ADC1->CR2&ADC_CR2_ADON) || !(RCC->APB2ENR&RCC_APB2ENR_ADC1EN)) adcFault_=true;
 #endif
 }
 
 // One 12-bit conversion of the currently selected MUX channel.
 uint16_t Sensor::convert() {
 #if LFR_DIRECT_ADC
+  if(adcFault_) return 0;  // latched: keep every later scan short and bounded
   ADC1->CR2|=ADC_CR2_SWSTART;
   // A conversion takes ~5 us; the guard only catches a dead or unclocked ADC.
   for(uint16_t guard=2000;!(ADC1->SR&ADC_SR_EOC);) {
@@ -124,6 +128,8 @@ void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Setting
   f.active=0;f.groups=0;
   f.center=false;f.leftEdge=false;f.rightEdge=false;
   f.fullMarker=false;f.junction=false;f.seen=false;f.confidence=0;
+  f.fullBlack=false;
+  uint8_t physicallyBlack=0;
   uint16_t minNorm=1000, maxNorm=0;
   for(uint8_t i=0;i<SENSOR_COUNT;++i) {
     const uint8_t src=s.mirror?uint8_t(SENSOR_COUNT-1-i):i;
@@ -139,6 +145,7 @@ void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Setting
         if(delta<0) delta=0;
         int32_t black=int32_t((uint32_t(delta)*normScale_[src])>>16);
         if(black>1000) black=1000;
+        if(black>=500) ++physicallyBlack;
         normalized=(s.lineMode==uint8_t(LineMode::Black))?uint16_t(black):uint16_t(1000-black);
       } else {
         // Fallback: safe division path (used before first calibration)
@@ -146,6 +153,7 @@ void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Setting
         int32_t black= range>0 ? (int32_t(raw)-int32_t(cal.white[src]))*1000L/range : 0;
         if(black<0)black=0;
         if(black>1000)black=1000;
+        if(black>=500) ++physicallyBlack;
         normalized=(s.lineMode==uint8_t(LineMode::Black))?uint16_t(black):uint16_t(1000-black);
       }
     }
@@ -182,6 +190,8 @@ void Sensor::read(SensorFrame &f,const Calibration &cal,bool valid,const Setting
   f.center=(f.norm[5]>=edgeThresh || f.norm[6]>=edgeThresh ||
             f.norm[7]>=edgeThresh || f.norm[8]>=edgeThresh);
   f.fullMarker=(f.active>=12 && f.leftEdge && f.rightEdge && f.center);
+  // Unfiltered and polarity independent: a black START pad in WHITE line mode.
+  f.fullBlack=(physicallyBlack>=12);
   // One contiguous fan from an outer edge into the center (e.g. 0..7)
   // also appears at sharp 90-degree bends. Never consume a scripted junction
   // on this ambiguous single-blob pattern. Branches that are optically

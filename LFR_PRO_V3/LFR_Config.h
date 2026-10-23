@@ -70,8 +70,30 @@
 // A full-black patch is geometrically ambiguous. Timeouts are fail-safe limits.
 #define LFR_START_PAD_TIMEOUT_MS 1500U
 #define LFR_MARKER_TIMEOUT_MS 900U
+// V3.4: an all-line-colour patch that clears within this time is treated as a
+// crossing line (T or +), longer ones as a pad. A 3 cm line plus sensor spot
+// takes ~70-160 ms at 0.25-0.55 m/s. TUNE on the real track (telemetry).
+#ifndef LFR_CROSSING_MAX_MS
+#define LFR_CROSSING_MAX_MS 200U
+#endif
 // Automatic finish is opt-in (Finish ON) and requires a sustained full marker.
-#define LFR_FINISH_CONFIRM_MS 24U
+// Must stay longer than LFR_CROSSING_MAX_MS so a crossing is never a finish.
+#ifndef LFR_FINISH_CONFIRM_MS
+#define LFR_FINISH_CONFIRM_MS 250U
+#endif
+// Non-clean frames shorter than this do not reset the clean-approach history.
+#define LFR_APPROACH_HOLD_MS 40U
+// GAP blind-crossing budget. 10 cm in 300 ms needs >= 0.33 m/s at curve PWM;
+// measure the real gap crossing time. STOP policy stays short.
+#ifndef LFR_GAP_RECOVER_MS
+#define LFR_GAP_RECOVER_MS 300U
+#endif
+#define LFR_GAP_STOP_MS 55U
+// Connected side branch: minimum blob width and how long the centred line may
+// take to reappear after the branch fan before it is treated as a corner.
+#define LFR_FAN_MIN_ACTIVE 6U
+#define LFR_FAN_CONFIRM_MS 120U
+static_assert(LFR_FINISH_CONFIRM_MS>LFR_CROSSING_MAX_MS,"finish must outlast a crossing");
 
 namespace lfr {
 static constexpr uint8_t SENSOR_COUNT = 14;
@@ -164,6 +186,7 @@ struct SensorFrame {
   bool rightEdge;
   bool fullMarker;
   bool junction;
+  bool fullBlack;   // >=12 sensors physically black, independent of LINE mode
 };
 struct Command { int16_t left; int16_t right; };
 
