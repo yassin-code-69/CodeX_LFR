@@ -1,0 +1,11 @@
+PHASE 1 FOLLOW-UP (use only if Claude pauses before V3.4 completion)
+Resume local dev/v3.4-phase-a without resetting existing work. Finish P0 ADC/ESTOP/navigation/script/Flash safety fixes now. Run production-code host regressions and an actual STM32F103C8 target build if available. Commit locally, produce a complete V3.4 firmware ZIP and test report, and then continue to V3.5. Do not push or touch main. Four existing buttons and all pins remain unchanged.
+
+PHASE 2 FOLLOW-UP (use after V3.4 checkpoint is verified)
+Create dev/v3.5-performance from the VERIFIED V3.4 local commit. Implement modular measured-dt PD/PID, 14-sensor confidence/multi-peak features, contextual junction classifier, confidence/risk-adaptive speed planner, turn-phase state machine, FAST_ARC/PIVOT and early line reacquisition behind safe default-off flags. Use known geometry only; no fake motor RPM/odometry. Reuse existing APIs/UI where possible. Add host tests, build on STM32C8, preserve classic fallback, local commit, full ZIP. No physical testing claims.
+
+PHASE 3 FOLLOW-UP (use after V3.5 coding)
+Finish reproducible host simulation/regression suite, STM32 build matrix and memory report, event/ADC/EEPROM failure injection, race-lock and 4-button checks, telemetry and tomorrow's test-plan/tuning worksheet. Deliver complete source ZIP, patch, log, branch/hash, changelog and explicit PASS/FAIL/UNTESTED scorecard. Highlight unresolved risks. Do not push or merge. Do not expand experimental scope if target build or P0 suite is failing.
+
+IF CLAUDE CONTEXT WINDOW IS NEARLY EXHAUSTED
+Stop feature expansion. Save and commit only known working code on the local feature branch, export a full source ZIP, and write CURRENT_STATE.md documenting branch/hash, changes, tests, exact next command, unresolved problems and what remains for university track testing. Do not fabricate completion or overwrite main.
