@@ -178,11 +178,35 @@ static void testSensorLevelT() {
   assert(c.state()==DriveState::Pivot);
   puts("PASS F01 sensor-level T (real Sensor::read): RIGHT nav takes the T junction");
 }
+// V3.4.1 audit fixes.
+static void testAuditFixes() {
+  {Settings s=script({RouteStep::Left});Controller c;    // A: leaving the start pad
+   c.start(0,0,true);uint32_t t=run(c,dark(),s,0,300);
+   SensorFrame exitPad=line();exitPad.active=9;exitPad.leftEdge=exitPad.rightEdge=true;exitPad.junction=true;
+   t=run(c,exitPad,s,t,15);run(c,line(),s,t,30);
+   assert(c.junctionCount()==0 && !c.routePending() && c.state()==DriveState::Follow);}
+  {Settings s=script({RouteStep::Straight,RouteStep::Left});Controller c;  // B: off-centre after STRAIGHT
+   uint32_t t=approach(c,s);t=run(c,dark(),s,t,60);t=run(c,line(),s,t,3);
+   t=run(c,line(2600),s,t,800);
+   assert(c.routeUsed()==1 && !c.routePending());
+   SensorFrame j=line();j.junction=true;j.leftEdge=true;j.active=8;run(c,j,s,t,30);
+   assert(c.junctionCount()==2 && c.routePending());}
+  {Settings s=script({RouteStep::Right});Controller c;    // C: + crossed at an angle
+   uint32_t t=approach(c,s);t=run(c,fan(-1),s,t,9);
+   SensorFrame both=line();both.active=12;both.leftEdge=both.rightEdge=true;both.junction=true;
+   t=run(c,both,s,t,6);t=run(c,fan(1),s,t,9);t=run(c,line(),s,t,3);
+   assert(c.state()==DriveState::JunctionAdvance && c.junctionCount()==1);
+   t=run(c,line(),s,t,45);assert(c.state()==DriveState::Pivot);}
+  {Settings s=script({RouteStep::Straight});Controller c; // D: + with off-centre continuing line
+   uint32_t t=approach(c,s);t=run(c,dark(),s,t,60);run(c,line(2600),s,t,3);
+   assert(c.state()==DriveState::JunctionAdvance && c.junctionCount()==1);}
+  puts("PASS audit: start-pad exit is no junction; STRAIGHT commits off-centre; angled + and off-centre + take the scripted branch");
+}
 int main() {
   for(int i=0;i<64;++i)mockDigital[i]=HIGH;
   testTCrossingTurnsInsteadOfFault();testScriptAtTAndPlus();testPadIsNotACrossing();
   testFinishOptInRobust();testSideBranchAndCorner();testRouteTransaction();
-  testGapBudget();testWhiteModeBlackStartPad();testSensorLevelT();
+  testGapBudget();testWhiteModeBlackStartPad();testSensorLevelT();testAuditFixes();
   puts("ALL V3.4 NAVIGATION REGRESSIONS PASSED");
   return 0;
 }

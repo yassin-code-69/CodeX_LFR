@@ -37,6 +37,7 @@ private:
   uint32_t lastCleanMs_=0;      // last clean centred frame (approach history)
   int8_t fanSide_=0;            // side branch candidate: -1 left, +1 right
   uint32_t fanSince_=0;
+  uint8_t fanArms_=0;           // arms seen during the candidate: bit0 left, bit1 right
   int8_t cornerSide_=0;         // side of the most recent connected fan
   uint32_t cornerSeenMs_=0;
   // Corner Anticipation: counts consecutive frames where outer sensors detect line approaching edges

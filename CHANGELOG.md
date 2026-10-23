@@ -1,3 +1,16 @@
+# LFR PRO V3.4.1 - audit fixes (branch `dev/v3.4-phase-a`)
+
+Found by a full code audit of V3.4/V3.5 and reproduced on host before fixing:
+
+| ID | Root cause | Fix | Test |
+|---|---|---|---|
+| A | Leaving a black start pad at an angle shows a both-edge "junction" pattern; it proposed a SCRIPT step | broad frames stay in the start-pad phase; leaving the pad latches the junction detector like a marker exit | `testAuditFixes` A |
+| B | A SCRIPT STRAIGHT step committed only on frames with the line under the centre sensors; off-centre (curve) it never committed, so every later junction was ignored | commit on any narrow line past the junction | B |
+| C | A + crossed at an angle shows one arm, then the other; only the first fan side was offered, so SCRIPT RIGHT stopped with FAULT | remember every arm seen during the side-branch candidate | C |
+| D | After a crossing, "straight exists" required the centre sensors; an off-centre continuing line made a + look like a T | straight exists if any line continues | D |
+
+The new test fails on V3.4 (`867289e`) and passes now. Docs: stale `LFR_FINISH_CONFIRM_MS 24` in `TECHNICAL_README.md` corrected; historical notes added to `TECHNICAL_README.md` and `TEST_REPORT.txt`.
+
 # LFR PRO V3.4 - Phase A reliability and safety (branch `dev/v3.4-phase-a`)
 
 Hardware, pins, the four buttons (UP PB13, DOWN PB12, ENTER PB5, BACK/E-STOP PB3), PWM frequency, menus and the EEPROM record format are unchanged. Every fix below has a host regression test; none is physically validated yet.

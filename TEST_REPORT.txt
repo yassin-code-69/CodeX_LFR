@@ -1,3 +1,5 @@
+NOTE: historical V3.2/V3.3 report. Current results: test_logs/ and CHANGELOG.md (docs/TEST_RESULTS.md on dev/v3.5-performance).
+
 PASS real integral, saturation, PID anti-windup
 PASS differential steering physical sign
 PASS left/right corner pivot, reacquisition, timeout

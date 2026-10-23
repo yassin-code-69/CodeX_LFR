@@ -20,7 +20,7 @@ void Controller::start(uint32_t nowMs,int16_t initialPosition,bool startingOnFul
   pivotDirection_=-1;pivotMinimumMs_=38;pivotMaximumMs_=900;
   junctions_=routeUsed_=0;
   routePending_=false;commitFrames_=0;markerArmed_=false;
-  lastCleanMs_=0;fanSide_=0;fanSince_=0;cornerSide_=0;cornerSeenMs_=0;
+  lastCleanMs_=0;fanSide_=0;fanSince_=0;fanArms_=0;cornerSide_=0;cornerSeenMs_=0;
   pending_=RouteStep::Straight;
   cornerBrakeFrames_=0;
   lastGoodError_=0.0f;lastGoodRate_=0.0f;
@@ -194,11 +194,14 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
   if(startPad_) {
     if(elapsed>LFR_START_PAD_TIMEOUT_MS) {enter(DriveState::Fault,nowMs);return stop;}
     // In WHITE line mode a black pad is "no line" (fullBlack, !seen).
-    if(f.fullMarker || (f.fullBlack && !f.seen))
+    // Broad frames while leaving it at an angle are still the pad.
+    if(f.fullMarker || (f.fullBlack && !f.seen) || (f.seen && f.active>5))
       return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
     startPad_=false;
     enter(DriveState::Follow,nowMs);
     pid_.reset(float(f.pos)*0.001f);lastPos_=f.pos;
+    // Leaving the pad is not a junction (it must not consume a SCRIPT step).
+    junctionLatched_=true;clearSince_=nowMs;cooldownUntil_=nowMs+180;
     if(!f.seen) {enter(DriveState::Gap,nowMs);return stop;}
     return Command{int16_t(s.curvePWM),int16_t(s.curvePWM)};
   }
@@ -295,7 +298,7 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
       if(markerArmed_ && elapsed<=LFR_CROSSING_MAX_MS) {
         SensorFrame options=f;
         options.leftEdge=true;options.rightEdge=true;
-        options.center=f.seen && f.center;
+        options.center=f.seen;  // the continuing line may be off-centre
         pid_.reset(float(f.pos)*0.001f);
         return takeJunction(options,f,s,nowMs,true);
       }
@@ -375,18 +378,21 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
   // continues -> branch (junction); the centre is lost -> corner (pivot above).
   const bool fan=f.center && !f.junction && f.groups==1 &&
                  f.active>=LFR_FAN_MIN_ACTIVE && (f.leftEdge!=f.rightEdge);
+  if(fanSide_!=0) fanArms_|=uint8_t((f.leftEdge?1:0)|(f.rightEdge?2:0));
   if(fan) {
     cornerSide_=f.leftEdge?-1:1;cornerSeenMs_=nowMs;
     if(fanSide_==0 && stableApproachFrames_>=5 && !junctionLatched_ &&
        nowMs>=cooldownUntil_ && !routePending_) {
       fanSide_=cornerSide_;fanSince_=nowMs;
+      fanArms_=uint8_t(fanSide_<0?1:2);
     }
   } else if(fanSide_!=0) {
     const bool resumed=f.center && !f.leftEdge && !f.rightEdge &&
                        !f.junction && f.active<=5;
     if(resumed) {
       SensorFrame options=f;
-      options.center=true;options.leftEdge=fanSide_<0;options.rightEdge=fanSide_>0;
+      // An angled + shows one arm, then the other: offer every arm seen.
+      options.center=true;options.leftEdge=(fanArms_&1)!=0;options.rightEdge=(fanArms_&2)!=0;
       cornerSide_=0;
       return takeJunction(options,f,s,nowMs,true);
     }
@@ -395,7 +401,7 @@ Command Controller::tick(const SensorFrame &f,const Settings &s,
 
   // A SCRIPT "straight" commits after a few clean centred frames past the junction.
   if(routePending_ && pending_==RouteStep::Straight) {
-    const bool clean=f.center && !f.junction && f.active<=5;
+    const bool clean=!f.junction && f.active<=5;  // narrow line anywhere: junction passed
     commitFrames_=clean?uint8_t(commitFrames_<8?commitFrames_+1:8):0;
     if(commitFrames_>=3) commitRoute();
   }
