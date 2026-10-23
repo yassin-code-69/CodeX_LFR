@@ -1,3 +1,7 @@
+# Repository cleanup - `firmware/gengrix-x1-active` (no firmware change)
+
+New permanent active firmware branch created from V3.5.2 `905389c`. `LFR_PRO_V3/` and the test sources are byte-identical to `905389c`. Removed from this branch only (history and other branches keep them): the V3.3 handoff package with its duplicate firmware copy, historical `test_logs/`, generated `tests/previews/`, obsolete V3.2/V3.3 documents (`TECHNICAL_README.md`, `TEST_REPORT.txt`, `SOURCE_CHANGES.patch`, `README_BN.md`, `WORKSPACE.md`, `FILES_SHA256.txt`), `docs/AUDIT_REPORT.md` and the duplicate `docs/CHANGELOG_V34_V35.md`. Added `README.md`, `.gitignore`, `docs/BUILD_AND_FLASH.md`, `docs/CALIBRATION.md`, `docs/DEVELOPMENT_WORKFLOW.md`; renamed docs to `HARDWARE_PIN_MAP.md`, `KNOWN_LIMITATIONS.md`, `TESTING_STATUS.md`, `TRACK_TEST_PLAN.md`. Entries below are the historical record and may name files that no longer exist on this branch.
+
 # LFR PRO V3.5.2 - safety audit branch (`dev/v3.5.2-safety-audit`, from frozen V3.5.1 `cf4d560`) - NOT a validated release
 
 Three findings from an independent review, each reproduced on `cf4d560` before fixing (`tests/test_v352_safety_audit.cpp`, `run_v352_tests.sh`):
