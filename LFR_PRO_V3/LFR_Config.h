@@ -33,7 +33,7 @@
 // FIRST INSTALL: 0 = diagnose only; after checking sensor map, motor direction,
 // stop button and calibration, deliberately set to 1 and reflash.
 #ifndef LFR_ALLOW_RACE_START
-#define LFR_ALLOW_RACE_START 0
+#define LFR_ALLOW_RACE_START 1
 #endif
 // 0 = no output in the timing-critical race loop (default).
 // 1 = V3.5 CSV telemetry on Serial1 at ~50 Hz; a line is DROPPED (never waits)
