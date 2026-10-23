@@ -1,0 +1,34 @@
+PASS real integral, saturation, PID anti-windup
+PASS differential steering physical sign
+PASS left/right corner pivot, reacquisition, timeout
+PASS short gap safety and STOP policy
+PASS scripted junction route and delayed pivot
+PASS sensor position + black/white line inversion
+PASS motor direction braking and safe reversal
+PASS CRC EEPROM dual-slot save and fallback
+PASS V1/V1.1 CRC-verified calibration migration and V3 upgrade
+PASS tiny SSD1306 init and drawing calls
+ALL V3 HOST TESTS PASSED
+PASS full Arduino sketch syntax under mock API
+PASS full UI smoke: boot / locked race / sensor live / motor BACK stop
+PASS professional UI snapshot screens (21 views)
+PASS readable 0-9, mode CURRENT/PREVIEW/COMMIT/CANCEL, 6 modes, reset confirm
+PASS race restart resets straight turbo: 175 == 175
+PASS GAP -> junction reacquisition -> exactly one junction
+PASS connected side fan does not consume junction, separated groups can
+PASS starting full-black pad ignored, explicit finish only after eligible sustained marker
+PASS scripted route cannot automatically finish before its route steps
+PASS GAP -> full-black patch reacquisition does not invent a finish
+PASS start-pad timeout stops indefinite blind movement
+PASS marker with FINISH OFF continues through 720ms pad, stops on bounded blind timeout
+PASS STOP gap policy commands zero immediately then enters FAULT
+PASS physically capped PWM, stop, safe reversal, ~equal 333Hz/200Hz command ramp
+PASS filtered PID transient: 24ms post-center output = -0.747
+ALL V3.2 EXTENDED REGRESSION TESTS PASSED
+PASS 2200 randomized controller traces; motor PWM bounds, mutual-exclusion and state invariants
+
+Additional checks performed outside these scripts:
+- Direct MUX GPIO BSRR lookup table: 16/16 valid selection/reset patterns.
+- Optional feature compile/execution: -DLFR_MOTOR_DEADBAND=20 -DLFR_PID_USE_ALPHA_BETA=1 -DLFR_SENSOR_DUMMY_READ=1 (host simulation passed; experimental observer exhibited larger post-step correction).
+- AddressSanitizer/UndefinedBehaviorSanitizer: edge tests and 2200 random traces passed without warnings in exercised code paths.
+- STM32 target compile/link, Flash/RAM, physical E-stop, real ADC timing and motor dynamics: NOT TESTED (target toolchain/hardware unavailable).
