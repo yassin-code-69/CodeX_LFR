@@ -31,6 +31,8 @@ Environment: Windows 11, MinGW g++ (Git Bash), arduino-cli 1.5.1 bundled with Ar
 | `sh run_v35_tests.sh` (FAST/CLASSIC, 2 x 100,000-tick seeded stress, UI/telemetry) | - | PASS |
 | PASS lines total | 53 | 61 |
 
+After the full audit (V3.4.1 / V3.5.1, see `AUDIT_REPORT.md`): 54 / 62 PASS lines, 0 failures; V3.5.1 also 62/62 under UBSan trap mode (`test_logs/v351/`).
+
 Audit repro tests (`V33_AUDIT_REPRO_TESTS.zip`) against V3.4: they encode V3.3 behaviour and now fail exactly at the fixed points (route consumed before turn, 900 ms sweep, init fault not latched).
 
 Intentionally updated expectations in older tests: gap 180 -> 300 ms, finish confirm 24 -> 250 ms, unchanged saves do not write, SCRIPT step commits after reacquire.
@@ -49,6 +51,11 @@ UndefinedBehaviorSanitizer in trap mode (`CXX="g++ -fsanitize=undefined -fsaniti
 | V3.5 `LFR_FAST_SENSOR=0` | 51,292 B (78%) | 4,092 B |
 | V3.5 `RACE_START=1 TELEMETRY=1` | 50,160 B (76%) | 4,104 B |
 | V3.5 `DUMMY_READ=1` | 48,680 B | 4,088 B |
+| V3.4.1 default (audit fixes) | 47,752 B | 4,052 B |
+| V3.5.1 default (audit fixes) | 48,732 B (74%) | 4,088 B |
+| V3.5.1 `LFR_FAST_SENSOR=0` | 51,352 B | 4,092 B |
+| V3.5.1 `RACE_START=1` | 49,712 B | 4,096 B |
+| V3.5.1 `RACE_START=1 TELEMETRY=1` | 50,220 B | 4,104 B |
 
 RAM figures are static only; stack peak is unmeasured. Firmware defaults to race locked (`LFR_ALLOW_RACE_START 0`).
 

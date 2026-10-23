@@ -1,3 +1,5 @@
+> **Note (V3.4+):** this file describes the V3.3 foundation. For the current behaviour, constants and test results see `CHANGELOG.md` (and `docs/` on `dev/v3.5-performance`).
+
 # LFR PRO V3.3 - Reliability-Corrected Full Source + Speed Foundation
 
 **Base:** the user's unpushed `LFR_PRO_V3.rar` (14 source files). This is a **conservative software-fix release**, not a hardware-certified or guaranteed winning race firmware. V3.3 adds the speed foundation (direct ADC, single-write EEPROM save, timing measurements, bug fixes) without changing race behaviour; see `CHANGELOG.md`.
@@ -53,7 +55,9 @@
 | `LFR_MOTOR_DEADBAND` | `0` | Only enable from measured stiction threshold; final physical duty is capped |
 | `LFR_ALLOW_FOLLOW_REVERSE` | `0` | Avoid forced reverse in FOLLOW before grip tests |
 | `CTRL_PERIOD_US` | `3000` | Nominal ~333Hz, contingent on sensor scan budget |
-| `LFR_FINISH_CONFIRM_MS` | `24` | Confirmed full marker dwell; may miss very thin markers |
+| `LFR_FINISH_CONFIRM_MS` | `250` | V3.4: confirmed full-marker dwell; must exceed `LFR_CROSSING_MAX_MS` (200) so a crossing line is never a finish |
+| `LFR_CROSSING_MAX_MS` | `200` | V3.4: all-black that clears sooner is a T/+ crossing |
+| `LFR_GAP_RECOVER_MS` | `300` | V3.4: blind gap budget (was a fixed 180 ms) |
 | `LFR_MARKER_TIMEOUT_MS` | `900` | Safety stop if black area has no usable line for too long |
 
 ## Remaining limitations - READ BEFORE COMPETITION

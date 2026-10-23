@@ -9,6 +9,18 @@ Everything new is OFF / CLASSIC by default; hardware, pins, four buttons, PWM an
 - Tests: `tests/run_v35_tests.sh` (FAST phases and guards, CLASSIC unchanged, SCRIPT commit through CATCH, 2 x 100,000-tick seeded stress with PWM-bound/interlock/phase-duration invariants, TURN MODE menu, telemetry drop-not-block). All 61 host PASS lines also pass under UBSan trap mode.
 - STM32 (0 warnings): default 48,672 B flash / 4,088 B RAM; `FAST_SENSOR=0` 51,292 / 4,092; `RACE_START=1 TELEMETRY=1` 50,160 / 4,104.
 - Docs: `docs/ARCHITECTURE.md`, `CONFIG_PARAMETERS.md`, `PIN_HARDWARE_LOCK.md`, `TEST_RESULTS.md`, `REMAINING_RISKS.md`, `TOMORROW_UNIVERSITY_TEST_PLAN.md`; `WORKSPACE.md` names the active source tree.
+# LFR PRO V3.4.1 - audit fixes (branch `dev/v3.4-phase-a`)
+
+Found by a full code audit of V3.4/V3.5 and reproduced on host before fixing:
+
+| ID | Root cause | Fix | Test |
+|---|---|---|---|
+| A | Leaving a black start pad at an angle shows a both-edge "junction" pattern; it proposed a SCRIPT step | broad frames stay in the start-pad phase; leaving the pad latches the junction detector like a marker exit | `testAuditFixes` A |
+| B | A SCRIPT STRAIGHT step committed only on frames with the line under the centre sensors; off-centre (curve) it never committed, so every later junction was ignored | commit on any narrow line past the junction | B |
+| C | A + crossed at an angle shows one arm, then the other; only the first fan side was offered, so SCRIPT RIGHT stopped with FAULT | remember every arm seen during the side-branch candidate | C |
+| D | After a crossing, "straight exists" required the centre sensors; an off-centre continuing line made a + look like a T | straight exists if any line continues | D |
+
+The new test fails on V3.4 (`867289e`) and passes now. Docs: stale `LFR_FINISH_CONFIRM_MS 24` in `TECHNICAL_README.md` corrected; historical notes added to `TECHNICAL_README.md` and `TEST_REPORT.txt`.
 
 # LFR PRO V3.4 - Phase A reliability and safety (branch `dev/v3.4-phase-a`)
 
